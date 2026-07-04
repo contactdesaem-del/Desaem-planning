@@ -735,6 +735,15 @@ textarea.form-input{min-height:80px;resize:vertical}
         <div id="sig-placeholder" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ccc;font-size:.85rem;pointer-events:none;text-align:center">Signez ici</div>
       </div>
 
+      <!-- ★ PHOTOS DE FIN DE MISSION intégrées dans la validation -->
+      <div style="margin-bottom:.75rem;border:1.5px dashed var(--border);border-radius:10px;padding:.75rem;background:#fafafa">
+        <div style="font-size:.85rem;font-weight:600;margin-bottom:.5rem;color:var(--dark)">📸 Photos de fin de mission</div>
+        <div style="font-size:.78rem;color:var(--grey);margin-bottom:.5rem">Ajoutez des photos pour valider la fin des travaux (optionnel)</div>
+        <input type="file" id="sig-photos" accept=".jpg,.jpeg,.png" multiple style="font-size:.82rem;width:100%">
+        <div id="sig-photos-preview" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem"></div>
+        <div id="sig-photos-progress" style="display:none;font-size:.8rem;color:var(--grey);text-align:center;padding:.3rem">⏳ Envoi des photos...</div>
+      </div>
+
       <div style="display:flex;gap:.5rem">
         <button class="btn btn-ghost" style="flex:1" onclick="clearSignature()">🗑️ Effacer</button>
         <button class="btn btn-primary" id="sig-validate-btn" style="flex:2" onclick="saveSignature()">✅ Valider la signature</button>
