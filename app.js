@@ -3904,4 +3904,3 @@ async function generateLMBonPDF(d){
     console.log('[LM] Erreur:', e.message);
   }
 }
-
