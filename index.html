@@ -582,15 +582,15 @@ textarea.form-input{min-height:80px;resize:vertical}
 
 <!-- ══ MODAL BON RÉCEPTION LEROY MERLIN ══════════════════════════════════════ -->
 <div class="modal-overlay" id="lm-modal" style="display:none">
-  <div class="modal" style="max-width:560px;padding:0;overflow:hidden">
-    <div style="background:#007A33;color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+  <div class="modal" style="max-width:560px;padding:0;overflow:hidden;max-height:95vh;display:flex;flex-direction:column">
+    <div style="background:#007A33;color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
       <div style="display:flex;align-items:center;gap:.75rem">
         <div style="font-size:1rem;font-weight:900;color:white;line-height:1.1">LEROY<br>MERLIN</div>
         <span id="lm-modal-title" style="font-size:.88rem;font-weight:600;opacity:.95">📋 Bon de Réception de Travaux</span>
       </div>
       <button class="modal-close" onclick="closeLMModal()" style="color:white">×</button>
     </div>
-    <div style="padding:1rem;max-height:85vh;overflow-y:auto">
+    <div style="padding:1rem;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch">
 
       <!-- Champs à remplir -->
       <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:.85rem;margin-bottom:.75rem">
@@ -645,10 +645,12 @@ textarea.form-input{min-height:80px;resize:vertical}
         En cas de réserves, une réunion de chantier sera organisée. L'installation a été réalisée dans le respect des normes en vigueur.
       </p>
 
-      <div class="form-actions">
-        <button id="lm-validate-btn" class="btn btn-primary" style="flex:1;background:#007A33;border-color:#007A33" onclick="saveLMBon()">✅ Valider et générer le bon</button>
-        <button class="btn btn-ghost" onclick="closeLMModal()">Annuler</button>
-      </div>
+    </div>
+
+    <!-- Bouton STICKY en bas — toujours visible même sur petit écran -->
+    <div style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;background:white;flex-shrink:0;display:flex;gap:.5rem">
+      <button id="lm-validate-btn" class="btn btn-primary" style="flex:1;background:#007A33;border-color:#007A33;font-size:1rem;padding:.75rem" onclick="saveLMBon()">✅ Valider et générer le bon</button>
+      <button class="btn btn-ghost" style="padding:.75rem 1rem" onclick="closeLMModal()">Annuler</button>
     </div>
   </div>
 </div>
@@ -712,12 +714,12 @@ textarea.form-input{min-height:80px;resize:vertical}
 
 <!-- ══ MODAL SIGNATURE CLIENT ═════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="signature-modal" style="display:none">
-  <div class="modal" style="max-width:520px;padding:0;overflow:hidden">
-    <div style="background:var(--dark);color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+  <div class="modal" style="max-width:520px;padding:0;overflow:hidden;max-height:92vh;display:flex;flex-direction:column">
+    <div style="background:var(--dark);color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
       <span style="font-weight:600;font-size:1rem">✍️ Signature client</span>
       <button class="modal-close" onclick="closeSignatureModal()" style="color:white">×</button>
     </div>
-    <div style="padding:1rem">
+    <div style="padding:1rem;overflow-y:auto;flex:1">
       <div style="font-size:.85rem;color:var(--grey);margin-bottom:.75rem;text-align:center">Le client signe ci-dessous avec son doigt ou un stylet</div>
 
       <div style="margin-bottom:.75rem">
@@ -744,7 +746,7 @@ textarea.form-input{min-height:80px;resize:vertical}
         <div id="sig-photos-progress" style="display:none;font-size:.8rem;color:var(--grey);text-align:center;padding:.3rem">⏳ Envoi des photos...</div>
       </div>
 
-      <div style="display:flex;gap:.5rem">
+      <div style="display:flex;gap:.5rem;position:sticky;bottom:0;background:white;padding:.75rem 0 .25rem;margin-top:.5rem">
         <button class="btn btn-ghost" style="flex:1" onclick="clearSignature()">🗑️ Effacer</button>
         <button class="btn btn-primary" id="sig-validate-btn" style="flex:2" onclick="saveSignature()">✅ Valider la signature</button>
       </div>
