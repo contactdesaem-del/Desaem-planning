@@ -289,6 +289,12 @@ textarea.form-input{min-height:80px;resize:vertical}
         <div class="card-title">📅 Prochaines missions</div>
         <div id="upcoming-missions"></div>
       </div>
+      <!-- Bouton calibration visible uniquement admin -->
+      <div id="admin-calibration-btn" style="display:none;margin-top:.5rem">
+        <button onclick="openLMCalibration()" style="width:100%;padding:.75rem;background:#2D2D2D;color:#D4956A;border:1.5px solid #D4956A;border-radius:10px;font-size:.88rem;font-weight:600;cursor:pointer">
+          🎯 Calibrer le bon de réception Leroy Merlin
+        </button>
+      </div>
     </div>
 
     <!-- PLANNING -->
@@ -754,7 +760,92 @@ textarea.form-input{min-height:80px;resize:vertical}
   </div>
 </div>
 
-<!-- TOAST -->
+<!-- MODAL CALIBRATION BON LM (admin uniquement) -->
+<div id="lm-calibration-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:#1a1a1a;flex-direction:column">
+
+  <!-- Barre d'outils -->
+  <div style="background:#2D2D2D;padding:.6rem 1rem;display:flex;align-items:center;gap:.75rem;flex-shrink:0;border-bottom:2px solid #D4956A">
+    <span style="color:#D4956A;font-weight:700;font-size:.95rem">🎯 Calibration Bon Leroy Merlin</span>
+    <span style="color:#aaa;font-size:.8rem">Glissez les champs pour les repositionner</span>
+    <div style="flex:1"></div>
+
+    <!-- Champ sélectionné -->
+    <div id="cal-selected-info" style="display:none;background:#333;border:1px solid #555;border-radius:6px;padding:.3rem .75rem;color:white;font-size:.8rem;font-family:monospace">
+      <span id="cal-field-name" style="color:#D4956A;font-weight:700"></span>
+      &nbsp;X: <span id="cal-field-x" style="color:#7dd3fc"></span>mm
+      &nbsp;Y: <span id="cal-field-y" style="color:#7dd3fc"></span>mm
+      <span id="cal-field-wh" style="color:#aaa"></span>
+    </div>
+
+    <button onclick="calTestPDF()" style="background:#555;color:white;border:none;border-radius:6px;padding:.4rem .8rem;font-size:.8rem;cursor:pointer">📄 Tester PDF</button>
+    <button onclick="calSaveConfig()" style="background:#007A33;color:white;border:none;border-radius:6px;padding:.4rem .8rem;font-size:.8rem;font-weight:700;cursor:pointer">💾 Enregistrer</button>
+    <button onclick="calReset()" style="background:#8B0000;color:white;border:none;border-radius:6px;padding:.4rem .8rem;font-size:.8rem;cursor:pointer">↺ Reset</button>
+    <button onclick="closeLMCalibration()" style="background:#444;color:white;border:none;border-radius:6px;padding:.4rem .8rem;font-size:.8rem;cursor:pointer">✕ Fermer</button>
+  </div>
+
+  <div style="display:flex;flex:1;overflow:hidden">
+
+    <!-- Zone de calibration (scan + champs déplaçables) -->
+    <div style="flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:20px;background:#111">
+      <div id="cal-canvas-wrapper" style="position:relative;display:inline-block;box-shadow:0 0 40px rgba(0,0,0,.8)">
+        <img id="cal-bg-img" src="" style="display:block;user-select:none;pointer-events:none">
+        <div id="cal-fields-layer" style="position:absolute;inset:0"></div>
+      </div>
+    </div>
+
+    <!-- Panneau propriétés -->
+    <div style="width:240px;background:#2D2D2D;border-left:1px solid #444;padding:1rem;overflow-y:auto;flex-shrink:0">
+      <div style="color:#D4956A;font-weight:700;font-size:.85rem;margin-bottom:.75rem;border-bottom:1px solid #444;padding-bottom:.5rem">PROPRIÉTÉS</div>
+      <div id="cal-props-empty" style="color:#777;font-size:.8rem">Cliquez sur un champ pour voir ses propriétés</div>
+      <div id="cal-props-panel" style="display:none">
+        <div style="margin-bottom:.6rem">
+          <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">Champ</label>
+          <div id="cal-prop-name" style="color:white;font-weight:700;font-size:.85rem"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.6rem">
+          <div>
+            <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">X (mm)</label>
+            <input id="cal-prop-x" type="number" step="0.1" style="width:100%;background:#333;border:1px solid #555;color:#7dd3fc;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFromProps('x',this.value)">
+          </div>
+          <div>
+            <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">Y (mm)</label>
+            <input id="cal-prop-y" type="number" step="0.1" style="width:100%;background:#333;border:1px solid #555;color:#7dd3fc;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFromProps('y',this.value)">
+          </div>
+        </div>
+        <div id="cal-prop-size-group" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.6rem">
+          <div>
+            <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">W (mm)</label>
+            <input id="cal-prop-w" type="number" step="0.5" style="width:100%;background:#333;border:1px solid #555;color:#a5f3fc;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFromProps('w',this.value)">
+          </div>
+          <div>
+            <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">H (mm)</label>
+            <input id="cal-prop-h" type="number" step="0.5" style="width:100%;background:#333;border:1px solid #555;color:#a5f3fc;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFromProps('h',this.value)">
+          </div>
+        </div>
+        <button onclick="calNudge(-0.5,'y')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">▲ +0.5mm</button>
+        <button onclick="calNudge(0.5,'y')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">▼ -0.5mm</button>
+        <button onclick="calNudge(-0.5,'x')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">◀ -0.5mm</button>
+        <button onclick="calNudge(0.5,'x')" style="width:100%;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">▶ +0.5mm</button>
+      </div>
+
+      <!-- Légende -->
+      <div style="margin-top:1.5rem;border-top:1px solid #444;padding-top:.75rem">
+        <div style="color:#D4956A;font-size:.72rem;font-weight:700;margin-bottom:.5rem">CHAMPS</div>
+        <div id="cal-legend" style="font-size:.72rem"></div>
+      </div>
+
+      <!-- Zoom -->
+      <div style="margin-top:1rem;border-top:1px solid #444;padding-top:.75rem">
+        <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.3rem">Zoom affichage</label>
+        <input type="range" id="cal-zoom" min="50" max="150" value="100" style="width:100%" oninput="calSetZoom(this.value)">
+        <div id="cal-zoom-label" style="color:#aaa;font-size:.72rem;text-align:center">100%</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CALIBRATION -->
+<div id="cal-toast" style="display:none;position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:#007A33;color:white;padding:.6rem 1.5rem;border-radius:20px;font-size:.85rem;z-index:10000;font-weight:600"></div>
 <div class="toast" id="toast"></div>
 
 <!-- MODAL DETAIL MISSION -->
