@@ -565,6 +565,10 @@ function renderAll(options){
 
 // ══ DASHBOARD ═════════════════════════════════════════════════════════════════
 function renderDashboard(){
+  // ★ Afficher/masquer le bouton de calibration selon le rôle
+  var calBtn = document.getElementById('admin-calibration-btn');
+  if(calBtn) calBtn.style.display = (currentUser && currentUser.isAdmin) ? 'block' : 'none';
+
   const now = new Date();
   let myMissions;
   if(currentUser.isAdmin){
