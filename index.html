@@ -614,7 +614,7 @@ textarea.form-input{min-height:80px;resize:vertical}
       <div style="background:#f5f5f5;border:1px solid #ddd;border-radius:8px;padding:.85rem;margin-bottom:.75rem">
         <p style="font-size:.82rem;font-weight:700;margin-bottom:.6rem;text-decoration:underline">Cocher la case de votre choix :</p>
         <label style="display:flex;align-items:flex-start;gap:.6rem;cursor:pointer;margin-bottom:.6rem">
-          <input type="radio" name="lm-reception" id="lm-sans-reserve" value="sans_reserve" checked style="margin-top:.2rem;width:16px;height:16px">
+          <input type="radio" name="lm-reception" id="lm-sans-reserve" value="sans_reserve" checked style="margin-top:.2rem;width:16px;height:16px" onchange="toggleLMReserves()">
           <span style="font-size:.85rem"><strong>Le client déclare accepter le chantier sans réserve.</strong><br>
           <span style="font-size:.75rem;color:#555">Après avoir procédé à l'examen détaillé des travaux exécutés, nous avons constaté qu'ils sont conformes à ceux prévus lors de la commande, sans malfaçons ou désordres apparents.</span></span>
         </label>
