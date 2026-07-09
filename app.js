@@ -3795,6 +3795,9 @@ async function saveLMBon(){
   const nomClient = document.getElementById('lm-client').value.trim();
   const numCommande = document.getElementById('lm-commande').value.trim();
   const sansReserve = document.getElementById('lm-sans-reserve').checked;
+  const avecReserve = document.getElementById('lm-avec-reserve').checked;
+  // ★ Double vérification : si "avec réserve" est coché, sansReserve = false
+  const isSansReserve = sansReserve && !avecReserve;
   const reserves = document.getElementById('lm-reserves').value.trim();
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR');
@@ -3803,12 +3806,12 @@ async function saveLMBon(){
   // et éviter que la sauvegarde Google Sheets échoue silencieusement (limite ~50k caractères/cellule)
   const sigClient = compressSignature(document.getElementById('lm-canvas-client'));
   const sigEntreprise = compressSignature(document.getElementById('lm-canvas-entreprise'));
-  await generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr});
+  await generateLMBonPDF({nomClient,numCommande,sansReserve:isSansReserve,reserves,sigClient,sigEntreprise,dateStr});
   const m = missions.find(m=>m.id===lmMissionId);
   if(m){
-    m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
+    m.lmBon = {nomClient,numCommande,sansReserve:isSansReserve,reserves,sigClient,sigEntreprise,dateStr};
     m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient};
-    m.conforme = sansReserve;
+    m.conforme = isSansReserve;
     // ★ Marquer terminée si mode terminer
     if(lmTerminerMode){
       m.statut = 'termine';
