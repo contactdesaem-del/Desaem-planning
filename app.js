@@ -3715,11 +3715,12 @@ function openLMModal(missionId, terminerMode){
   if(!m){ showToast('Mission introuvable (id:'+missionId+')'); console.log('[LM] Mission introuvable, id:', missionId, 'type:', typeof missionId, 'missions:', missions.map(m=>m.id)); return; }
   lmMissionId = mid;
   lmTerminerMode = !!terminerMode;
-  document.getElementById('lm-client').value = ''; // Toujours vide — le monteur saisit le nom du signataire sur place
+  document.getElementById('lm-client').value = '';
   document.getElementById('lm-commande').value = m.factureNum||'';
   document.getElementById('lm-reserves').value = '';
   document.getElementById('lm-reserves-group').style.display = 'none';
-  document.getElementById('lm-sans-reserve').checked = true;
+  // ★ Réinitialiser avec le nouveau système de toggle (sans réserve par défaut)
+  selectLMReserveOption(false);
   lmHasClient = false; lmHasEntreprise = false;
   const titleEl = document.getElementById('lm-modal-title');
   const btnEl = document.getElementById('lm-validate-btn');
@@ -3736,8 +3737,57 @@ function closeLMModal(){
 }
 
 function toggleLMReserves(){
-  const avec = document.getElementById('lm-avec-reserve').checked;
+  // Compatibilité ancienne version - redirige vers la nouvelle fonction
+  const avec = document.getElementById('lm-avec-reserve') && document.getElementById('lm-avec-reserve').checked;
   document.getElementById('lm-reserves-group').style.display = avec ? 'block' : 'none';
+}
+
+// ★ Nouvelle fonction pour les boutons toggle visuels
+function selectLMReserveOption(avecReserves){
+  const hiddenVal = document.getElementById('lm-avec-reserve-val');
+  if(hiddenVal) hiddenVal.value = avecReserves ? 'true' : 'false';
+
+  // Bouton SANS réserve
+  const btnSans = document.getElementById('lm-btn-sans');
+  const checkSans = document.getElementById('lm-check-sans');
+  // Bouton AVEC réserves
+  const btnAvec = document.getElementById('lm-btn-avec');
+  const checkAvec = document.getElementById('lm-check-avec');
+
+  if(!btnSans || !btnAvec) return;
+
+  if(avecReserves){
+    // Sélectionner "avec réserves"
+    btnAvec.style.border = '2px solid #C0392B';
+    btnAvec.style.background = '#FFF5F5';
+    checkAvec.style.border = '2px solid #C0392B';
+    checkAvec.style.color = '#C0392B';
+    checkAvec.textContent = '✓';
+    // Désélectionner "sans réserve"
+    btnSans.style.border = '2px solid #ccc';
+    btnSans.style.background = 'white';
+    checkSans.style.border = '2px solid #ccc';
+    checkSans.style.color = '#ccc';
+    checkSans.textContent = '';
+    // Afficher zone réserves
+    document.getElementById('lm-reserves-group').style.display = 'block';
+  } else {
+    // Sélectionner "sans réserve"
+    btnSans.style.border = '2px solid #007A33';
+    btnSans.style.background = '#E8F5E9';
+    checkSans.style.border = '2px solid #007A33';
+    checkSans.style.color = '#007A33';
+    checkSans.textContent = '✓';
+    // Désélectionner "avec réserves"
+    btnAvec.style.border = '2px solid #ccc';
+    btnAvec.style.background = 'white';
+    checkAvec.style.border = '2px solid #ccc';
+    checkAvec.style.color = '#ccc';
+    checkAvec.textContent = '';
+    // Masquer zone réserves
+    document.getElementById('lm-reserves-group').style.display = 'none';
+    document.getElementById('lm-reserves').value = '';
+  }
 }
 
 function initLMCanvases(){ initLMCanvas('client'); initLMCanvas('entreprise'); }
@@ -3794,11 +3844,13 @@ async function saveLMBon(){
   if(!lmHasClient){ showToast('⚠️ La signature client est requise'); return; }
   const nomClient = document.getElementById('lm-client').value.trim();
   const numCommande = document.getElementById('lm-commande').value.trim();
-  const sansReserve = document.getElementById('lm-sans-reserve').checked;
-  const avecReserve = document.getElementById('lm-avec-reserve').checked;
-  // ★ Double vérification : si "avec réserve" est coché, sansReserve = false
-  const isSansReserve = sansReserve && !avecReserve;
+  // ★ Lire depuis le champ caché (plus fiable sur mobile que les radio buttons)
+  const hiddenVal = document.getElementById('lm-avec-reserve-val');
+  const avecReserveSelected = hiddenVal && hiddenVal.value === 'true';
+  const isSansReserve = !avecReserveSelected;
   const reserves = document.getElementById('lm-reserves').value.trim();
+  // ★ LOG DEBUG
+  console.log('[LM] avecReserve:', avecReserveSelected, '| isSansReserve:', isSansReserve, '| reserves:', reserves);
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR');
   const heureStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
