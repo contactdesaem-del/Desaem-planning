@@ -3727,7 +3727,9 @@ function openLMModal(missionId, terminerMode){
   if(titleEl) titleEl.textContent = terminerMode ? '📋 Bon de réception — Terminer l\'intervention' : '📋 Bon de réception Leroy Merlin';
   if(btnEl) btnEl.textContent = terminerMode ? '✅ Valider et terminer l\'intervention' : '✅ Valider et générer le bon';
   document.getElementById('lm-modal').style.display = 'flex';
-  setTimeout(initLMCanvases, 80);
+  // ★ Délai plus long sur mobile pour que le modal soit complètement rendu
+  setTimeout(initLMCanvases, 200);
+  setTimeout(initLMCanvases, 600); // double tentative si le premier échoue
   console.log('[LM] Modale ouverte pour:', m.client, '| mode terminer:', terminerMode);
 }
 
@@ -3790,24 +3792,122 @@ function selectLMReserveOption(avecReserves){
   }
 }
 
-function initLMCanvases(){ initLMCanvas('client'); initLMCanvas('entreprise'); }
+function initLMCanvases(){ 
+  initLMCanvas('client'); 
+  initLMCanvas('entreprise'); 
+}
 
 function initLMCanvas(who){
   const canvas = document.getElementById('lm-canvas-'+who);
   if(!canvas) return;
-  const w = canvas.parentElement.offsetWidth - 4;
-  const h = 100;
-  canvas.width = w; canvas.height = h; canvas.style.height = h+'px';
+
+  // ★ FIX MOBILE : utiliser le vrai offsetWidth du parent APRÈS rendu complet
+  // Si le parent fait 0, attendre encore un peu
+  let w = canvas.parentElement.offsetWidth - 4;
+  if(w < 50){
+    setTimeout(function(){ initLMCanvas(who); }, 150);
+    return;
+  }
+  const h = 110;
+  
+  // Définir la résolution physique du canvas (évite le flou sur écrans Retina)
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
-  ctx.strokeStyle='#1a1a1a'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round';
-  if(who==='client') lmCtxClient=ctx; else lmCtxEntreprise=ctx;
-  const pos=(e)=>{const r=canvas.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return[(s.clientX-r.left)*(canvas.width/r.width),(s.clientY-r.top)*(canvas.height/r.height)];};
-  const start=(e)=>{e.preventDefault();lmDrawing=true;lmActiveCanvas=who;ctx.beginPath();ctx.moveTo(...pos(e));};
-  const move=(e)=>{e.preventDefault();if(!lmDrawing||lmActiveCanvas!==who)return;ctx.lineTo(...pos(e));ctx.stroke();document.getElementById('lm-placeholder-'+who).style.display='none';if(who==='client')lmHasClient=true;else lmHasEntreprise=true;};
-  const stop=()=>{lmDrawing=false;};
-  canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',stop);canvas.addEventListener('mouseleave',stop);
-  canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',stop,{passive:false});
+  ctx.scale(dpr, dpr); // ★ Important : scaler le contexte pour compenser le DPR
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if(who==='client') lmCtxClient = ctx; else lmCtxEntreprise = ctx;
+
+  // ★ FIX POSITION : calculer la position par rapport au bounding rect du canvas CSS
+  // et non pas en pixels physiques — sinon décalage sur mobile haute résolution
+  const pos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    const x = src.clientX - r.left;
+    const y = src.clientY - r.top;
+    return [x, y]; // coordonnées CSS, pas physiques (ctx.scale() s'en charge)
+  };
+
+  const start = (e) => {
+    e.preventDefault();
+    lmDrawing = true;
+    lmActiveCanvas = who;
+    const [x, y] = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const move = (e) => {
+    e.preventDefault();
+    if(!lmDrawing || lmActiveCanvas !== who) return;
+    const [x, y] = pos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    document.getElementById('lm-placeholder-'+who).style.display = 'none';
+    if(who === 'client') lmHasClient = true;
+    else lmHasEntreprise = true;
+  };
+
+  const stop = () => { lmDrawing = false; };
+
+  // Supprimer anciens listeners pour éviter les doublons
+  const newCanvas = canvas.cloneNode(true);
+  canvas.parentNode.replaceChild(newCanvas, canvas);
+  const c = document.getElementById('lm-canvas-'+who);
+  
+  // Reconfigurer le canvas cloné
+  c.width = w * dpr;
+  c.height = h * dpr;
+  c.style.width = w + 'px';
+  c.style.height = h + 'px';
+  const ctx2 = c.getContext('2d');
+  ctx2.scale(dpr, dpr);
+  ctx2.fillStyle = '#fff';
+  ctx2.fillRect(0, 0, w, h);
+  ctx2.strokeStyle = '#1a1a1a';
+  ctx2.lineWidth = 2.5;
+  ctx2.lineCap = 'round';
+  ctx2.lineJoin = 'round';
+  if(who==='client') lmCtxClient = ctx2; else lmCtxEntreprise = ctx2;
+
+  const pos2 = (e) => {
+    const r = c.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return [src.clientX - r.left, src.clientY - r.top];
+  };
+  const start2 = (e) => {
+    e.preventDefault();
+    lmDrawing = true; lmActiveCanvas = who;
+    const [x,y] = pos2(e);
+    ctx2.beginPath(); ctx2.moveTo(x,y);
+  };
+  const move2 = (e) => {
+    e.preventDefault();
+    if(!lmDrawing || lmActiveCanvas !== who) return;
+    const [x,y] = pos2(e);
+    ctx2.lineTo(x,y); ctx2.stroke();
+    document.getElementById('lm-placeholder-'+who).style.display = 'none';
+    if(who==='client') lmHasClient = true; else lmHasEntreprise = true;
+  };
+  const stop2 = () => { lmDrawing = false; };
+
+  c.addEventListener('mousedown',  start2);
+  c.addEventListener('mousemove',  move2);
+  c.addEventListener('mouseup',    stop2);
+  c.addEventListener('mouseleave', stop2);
+  c.addEventListener('touchstart', start2, {passive:false});
+  c.addEventListener('touchmove',  move2,  {passive:false});
+  c.addEventListener('touchend',   stop2,  {passive:false});
 }
 
 function clearLMCanvas(who){
@@ -3841,6 +3941,17 @@ function compressSignature(canvas){
 }
 
 async function saveLMBon(){
+  // ★ Vérifier si la signature client existe — soit via le flag, soit en analysant le canvas
+  const canvasClient = document.getElementById('lm-canvas-client');
+  if(!lmHasClient){
+    // Double vérification : analyser le canvas pour voir s'il y a du contenu
+    if(canvasClient){
+      const ctx = canvasClient.getContext('2d');
+      const px = ctx.getImageData(0, 0, canvasClient.width, canvasClient.height).data;
+      const hasContent = Array.from(px).some((v, i) => i % 4 !== 3 && v < 250);
+      if(hasContent){ lmHasClient = true; } // Canvas a du contenu même si le flag a raté
+    }
+  }
   if(!lmHasClient){ showToast('⚠️ La signature client est requise'); return; }
   const nomClient = document.getElementById('lm-client').value.trim();
   const numCommande = document.getElementById('lm-commande').value.trim();
