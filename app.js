@@ -3801,113 +3801,113 @@ function initLMCanvas(who){
   const canvas = document.getElementById('lm-canvas-'+who);
   if(!canvas) return;
 
-  // ★ FIX MOBILE : utiliser le vrai offsetWidth du parent APRÈS rendu complet
-  // Si le parent fait 0, attendre encore un peu
-  let w = canvas.parentElement.offsetWidth - 4;
+  // Largeur CSS disponible
+  const w = canvas.parentElement.clientWidth - 4;
   if(w < 50){
-    setTimeout(function(){ initLMCanvas(who); }, 150);
+    setTimeout(function(){ initLMCanvas(who); }, 200);
     return;
   }
-  const h = 110;
-  
-  // Définir la résolution physique du canvas (évite le flou sur écrans Retina)
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width  = w * dpr;
-  canvas.height = h * dpr;
+  const h = 120;
+
+  // Résolution physique selon densité d'écran (Retina, Android haute densité)
+  const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap à 2 pour perf
+
+  // Dimensions physiques du canvas
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  // Dimensions CSS d'affichage
   canvas.style.width  = w + 'px';
   canvas.style.height = h + 'px';
-  
+
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr); // ★ Important : scaler le contexte pour compenser le DPR
+  // Scale une seule fois — toutes les coords dessin seront en CSS px
+  ctx.scale(dpr, dpr);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = '#1a1a1a';
+  ctx.strokeStyle = '#222';
   ctx.lineWidth = 2.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  if(who==='client') lmCtxClient = ctx; else lmCtxEntreprise = ctx;
+  if(who === 'client') lmCtxClient = ctx;
+  else lmCtxEntreprise = ctx;
 
-  // ★ FIX POSITION : calculer la position par rapport au bounding rect du canvas CSS
-  // et non pas en pixels physiques — sinon décalage sur mobile haute résolution
-  const pos = (e) => {
+  // Calculer position du doigt/souris en coordonnées CSS
+  function getPos(e){
     const r = canvas.getBoundingClientRect();
     const src = e.touches ? e.touches[0] : e;
-    const x = src.clientX - r.left;
-    const y = src.clientY - r.top;
-    return [x, y]; // coordonnées CSS, pas physiques (ctx.scale() s'en charge)
-  };
+    return {
+      x: src.clientX - r.left,
+      y: src.clientY - r.top
+    };
+  }
 
-  const start = (e) => {
-    e.preventDefault();
-    lmDrawing = true;
-    lmActiveCanvas = who;
-    const [x, y] = pos(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
+  // Supprimer tous les anciens listeners en remplaçant le canvas
+  const fresh = canvas.cloneNode(false); // false = pas les enfants
+  canvas.parentNode.replaceChild(fresh, canvas);
 
-  const move = (e) => {
-    e.preventDefault();
-    if(!lmDrawing || lmActiveCanvas !== who) return;
-    const [x, y] = pos(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    document.getElementById('lm-placeholder-'+who).style.display = 'none';
-    if(who === 'client') lmHasClient = true;
-    else lmHasEntreprise = true;
-  };
+  // Réinitialiser le canvas frais avec les mêmes dimensions
+  fresh.width  = Math.round(w * dpr);
+  fresh.height = Math.round(h * dpr);
+  fresh.style.width  = w + 'px';
+  fresh.style.height = h + 'px';
 
-  const stop = () => { lmDrawing = false; };
+  const ctx3 = fresh.getContext('2d');
+  ctx3.scale(dpr, dpr);
+  ctx3.fillStyle = '#fff';
+  ctx3.fillRect(0, 0, w, h);
+  ctx3.strokeStyle = '#222';
+  ctx3.lineWidth = 2.5;
+  ctx3.lineCap = 'round';
+  ctx3.lineJoin = 'round';
 
-  // Supprimer anciens listeners pour éviter les doublons
-  const newCanvas = canvas.cloneNode(true);
-  canvas.parentNode.replaceChild(newCanvas, canvas);
-  const c = document.getElementById('lm-canvas-'+who);
-  
-  // Reconfigurer le canvas cloné
-  c.width = w * dpr;
-  c.height = h * dpr;
-  c.style.width = w + 'px';
-  c.style.height = h + 'px';
-  const ctx2 = c.getContext('2d');
-  ctx2.scale(dpr, dpr);
-  ctx2.fillStyle = '#fff';
-  ctx2.fillRect(0, 0, w, h);
-  ctx2.strokeStyle = '#1a1a1a';
-  ctx2.lineWidth = 2.5;
-  ctx2.lineCap = 'round';
-  ctx2.lineJoin = 'round';
-  if(who==='client') lmCtxClient = ctx2; else lmCtxEntreprise = ctx2;
+  // Stocker le bon contexte
+  if(who === 'client') lmCtxClient = ctx3;
+  else lmCtxEntreprise = ctx3;
 
-  const pos2 = (e) => {
-    const r = c.getBoundingClientRect();
+  function getPos3(e){
+    const r = fresh.getBoundingClientRect();
     const src = e.touches ? e.touches[0] : e;
-    return [src.clientX - r.left, src.clientY - r.top];
-  };
-  const start2 = (e) => {
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  }
+
+  fresh.addEventListener('mousedown', function(e){
     e.preventDefault();
     lmDrawing = true; lmActiveCanvas = who;
-    const [x,y] = pos2(e);
-    ctx2.beginPath(); ctx2.moveTo(x,y);
-  };
-  const move2 = (e) => {
+    const p = getPos3(e);
+    ctx3.beginPath(); ctx3.moveTo(p.x, p.y);
+  });
+
+  fresh.addEventListener('mousemove', function(e){
     e.preventDefault();
     if(!lmDrawing || lmActiveCanvas !== who) return;
-    const [x,y] = pos2(e);
-    ctx2.lineTo(x,y); ctx2.stroke();
+    const p = getPos3(e);
+    ctx3.lineTo(p.x, p.y); ctx3.stroke();
     document.getElementById('lm-placeholder-'+who).style.display = 'none';
-    if(who==='client') lmHasClient = true; else lmHasEntreprise = true;
-  };
-  const stop2 = () => { lmDrawing = false; };
+    if(who === 'client') lmHasClient = true; else lmHasEntreprise = true;
+  });
 
-  c.addEventListener('mousedown',  start2);
-  c.addEventListener('mousemove',  move2);
-  c.addEventListener('mouseup',    stop2);
-  c.addEventListener('mouseleave', stop2);
-  c.addEventListener('touchstart', start2, {passive:false});
-  c.addEventListener('touchmove',  move2,  {passive:false});
-  c.addEventListener('touchend',   stop2,  {passive:false});
+  fresh.addEventListener('mouseup',    function(){ lmDrawing = false; });
+  fresh.addEventListener('mouseleave', function(){ lmDrawing = false; });
+
+  fresh.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    lmDrawing = true; lmActiveCanvas = who;
+    const p = getPos3(e);
+    ctx3.beginPath(); ctx3.moveTo(p.x, p.y);
+  }, {passive: false});
+
+  fresh.addEventListener('touchmove', function(e){
+    e.preventDefault();
+    if(!lmDrawing || lmActiveCanvas !== who) return;
+    const p = getPos3(e);
+    ctx3.lineTo(p.x, p.y); ctx3.stroke();
+    document.getElementById('lm-placeholder-'+who).style.display = 'none';
+    if(who === 'client') lmHasClient = true; else lmHasEntreprise = true;
+  }, {passive: false});
+
+  fresh.addEventListener('touchend',   function(){ lmDrawing = false; }, {passive: false});
+  fresh.addEventListener('touchcancel',function(){ lmDrawing = false; }, {passive: false});
 }
 
 function clearLMCanvas(who){
@@ -4038,11 +4038,11 @@ async function generateLMBonPDF(d){
       },
       // Cases à cocher: {x, y} = position du symbole ✓
       checkboxes: {
-        sansReserve:   { x: 12.65, y: 92.54  },
-        avecReserves:  { x: 12.65, y: 113.25 }
+        sansReserve:   { x: 17.02, y: 91.44  },
+        avecReserves:  { x: 17.02, y: 112.15 }
       },
       // Texte réserves (si avec réserves)
-      reserves: { x: 22, y: 120, maxWidth: 165 },
+      reserves: { x: 22, y: 119, maxWidth: 165 },
       // Date: 3 colonnes JJ / MM / AAAA
       date: {
         jour:  { x: 117.31, y: 197.19 },
@@ -4171,10 +4171,10 @@ function getDefaultLMConfig(){
       nomArtisan:  { x: 43.7,  y: 91.44 }
     },
     checkboxes: {
-      sansReserve:  { x: 12.65, y: 92.54  },
-      avecReserves: { x: 12.65, y: 113.25 }
+      sansReserve:  { x: 17.02, y: 91.44  },
+      avecReserves: { x: 17.02, y: 112.15 }
     },
-    reserves: { x: 22, y: 120, maxWidth: 165 },
+    reserves: { x: 22, y: 119, maxWidth: 165 },
     date: {
       jour:  { x: 117.31, y: 197.19 },
       mois:  { x: 131.11, y: 197.19 },
