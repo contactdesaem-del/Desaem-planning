@@ -3962,6 +3962,8 @@ async function saveLMBon(){
   const reserves = document.getElementById('lm-reserves').value.trim();
   // ★ LOG DEBUG
   console.log('[LM] avecReserve:', avecReserveSelected, '| isSansReserve:', isSansReserve, '| reserves:', reserves);
+  // ★ Toast de confirmation visible pour le monteur
+  showToast('📋 ' + (isSansReserve ? 'Sans réserve' : 'Avec réserves: ' + (reserves||'(vide)')));
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR');
   const heureStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
