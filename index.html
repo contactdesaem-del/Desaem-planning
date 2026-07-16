@@ -835,6 +835,11 @@ textarea.form-input{min-height:80px;resize:vertical}
             <input id="cal-prop-h" type="number" step="0.5" style="width:100%;background:#333;border:1px solid #555;color:#a5f3fc;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFromProps('h',this.value)">
           </div>
         </div>
+        <!-- Taille de police (pour cases et réserves) -->
+        <div id="cal-prop-fs-group" style="display:none;margin-bottom:.6rem">
+          <label style="color:#aaa;font-size:.72rem;display:block;margin-bottom:.2rem">Taille police (pt)</label>
+          <input id="cal-prop-fs" type="number" step="1" min="6" max="30" style="width:100%;background:#333;border:1px solid #555;color:#fde68a;border-radius:4px;padding:.3rem;font-size:.82rem" oninput="calUpdateFontSize(this)">
+        </div>
         <button onclick="calNudge(-0.5,'y')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">▲ +0.5mm</button>
         <button onclick="calNudge(0.5,'y')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">▼ -0.5mm</button>
         <button onclick="calNudge(-0.5,'x')" style="width:100%;margin-bottom:.3rem;background:#333;color:white;border:1px solid #555;border-radius:4px;padding:.3rem;cursor:pointer;font-size:.8rem">◀ -0.5mm</button>
