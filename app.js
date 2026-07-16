@@ -4043,8 +4043,10 @@ async function generateLMBonPDF(d){
         sansReserve:   { x: 17.02, y: 91.44  },
         avecReserves:  { x: 17.02, y: 112.15 }
       },
+      checkboxFontSize: 14,
       // Texte réserves (si avec réserves)
       reserves: { x: 22, y: 119, maxWidth: 165 },
+      reservesFontSize: 9,
       // Date: 3 colonnes JJ / MM / AAAA
       date: {
         jour:  { x: 117.31, y: 197.19 },
@@ -4076,17 +4078,17 @@ async function generateLMBonPDF(d){
     pdf.text(d.numCommande || '', LM_CONFIG.fields.numCommande.x, LM_CONFIG.fields.numCommande.y);
     pdf.text('DESAEM',            LM_CONFIG.fields.nomArtisan.x,  LM_CONFIG.fields.nomArtisan.y);
 
-    // 3. Cases à cocher
-    pdf.setFontSize(13);
+    // 3. Cases à cocher — taille depuis la config (calibrable)
+    pdf.setFontSize(LM_CONFIG.checkboxFontSize || 14);
     pdf.setFont('helvetica', 'bold');
     if(d.sansReserve){
       pdf.text('\u2714', LM_CONFIG.checkboxes.sansReserve.x, LM_CONFIG.checkboxes.sansReserve.y);
     } else {
       pdf.text('\u2714', LM_CONFIG.checkboxes.avecReserves.x, LM_CONFIG.checkboxes.avecReserves.y);
-      // Texte réserves
+      // Texte réserves — taille et position depuis la config (calibrable)
       if(d.reserves){
         pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(8);
+        pdf.setFontSize(LM_CONFIG.reservesFontSize || 9);
         var lines = pdf.splitTextToSize(d.reserves, LM_CONFIG.reserves.maxWidth);
         pdf.text(lines, LM_CONFIG.reserves.x, LM_CONFIG.reserves.y);
       }
@@ -4150,8 +4152,9 @@ var LM_CAL_FIELDS = [
   { id:'nomClient',    label:'Nom client',      color:'#ef4444', type:'point', group:'fields',     key:'nomClient'    },
   { id:'numCommande',  label:'N de commande',   color:'#f97316', type:'point', group:'fields',     key:'numCommande'  },
   { id:'nomArtisan',   label:'Artisan',         color:'#eab308', type:'point', group:'fields',     key:'nomArtisan'   },
-  { id:'sansReserve',  label:'Check sans res.', color:'#22c55e', type:'point', group:'checkboxes', key:'sansReserve'  },
-  { id:'avecReserves', label:'Check avec res.', color:'#06b6d4', type:'point', group:'checkboxes', key:'avecReserves' },
+  { id:'sansReserve',  label:'Coche sans res.', color:'#22c55e', type:'point', group:'checkboxes', key:'sansReserve'  },
+  { id:'avecReserves', label:'Coche avec res.', color:'#06b6d4', type:'point', group:'checkboxes', key:'avecReserves' },
+  { id:'reserves',     label:'Texte réserves',  color:'#0ea5e9', type:'point', group:'reserves',   key:'reserves'     },
   { id:'dateJour',     label:'Date JJ',         color:'#8b5cf6', type:'point', group:'date',       key:'jour'         },
   { id:'dateMois',     label:'Date MM',         color:'#8b5cf6', type:'point', group:'date',       key:'mois'         },
   { id:'dateAnnee',    label:'Date AAAA',       color:'#a855f7', type:'point', group:'date',       key:'annee'        },
@@ -4176,7 +4179,9 @@ function getDefaultLMConfig(){
       sansReserve:  { x: 17.02, y: 91.44  },
       avecReserves: { x: 17.02, y: 112.15 }
     },
+    checkboxFontSize: 14,
     reserves: { x: 22, y: 119, maxWidth: 165 },
+    reservesFontSize: 9,
     date: {
       jour:  { x: 117.31, y: 197.19 },
       mois:  { x: 131.11, y: 197.19 },
@@ -4206,6 +4211,7 @@ function calGetCoords(fieldDef, cfg){
   if(fieldDef.group === 'checkboxes')  return cfg.checkboxes[fieldDef.key];
   if(fieldDef.group === 'date')        return cfg.date[fieldDef.key];
   if(fieldDef.group === 'signatures')  return cfg.signatures[fieldDef.key];
+  if(fieldDef.group === 'reserves')    return cfg.reserves;
   return null;
 }
 
@@ -4354,6 +4360,18 @@ function calShowProps(id){
   document.getElementById('cal-prop-y').value = c.y;
   document.getElementById('cal-prop-size-group').style.display = f.type==='zone'?'grid':'none';
   if(f.type==='zone'){ document.getElementById('cal-prop-w').value=c.w; document.getElementById('cal-prop-h').value=c.h; }
+  // Afficher contrôle taille fonte si applicable
+  var fsGroup = document.getElementById('cal-prop-fs-group');
+  if(fsGroup){
+    var fsKey = f.group === 'checkboxes' ? 'checkboxFontSize' : (f.group === 'reserves' ? 'reservesFontSize' : null);
+    if(fsKey && calState.config[fsKey] !== undefined){
+      fsGroup.style.display = 'block';
+      document.getElementById('cal-prop-fs').value = calState.config[fsKey];
+      document.getElementById('cal-prop-fs').setAttribute('data-fskey', fsKey);
+    } else {
+      fsGroup.style.display = 'none';
+    }
+  }
 }
 
 function calUpdateFromProps(prop, val){
@@ -4387,6 +4405,15 @@ function calRenderLegend(){
       + '<div style="width:10px;height:10px;background:' + f.color + ';border-radius:50%;flex-shrink:0"></div>'
       + '<span style="color:#ccc;font-size:.75rem">' + f.label + '</span></div>';
   }).join('');
+}
+
+function calUpdateFontSize(input){
+  if(!calState.config || !input) return;
+  var fsKey = input.getAttribute('data-fskey');
+  if(!fsKey) return;
+  var val = parseInt(input.value);
+  if(isNaN(val) || val < 6) return;
+  calState.config[fsKey] = val;
 }
 
 function calSaveConfig(){
