@@ -4055,8 +4055,8 @@ async function generateLMBonPDF(d){
       },
       // Zones de signature: {x, y, w, h}
       signatures: {
-        client:     { x: 6.9,   y: 212.61, w: 85.1, h: 18.7 },
-        partenaire: { x: 105.81, y: 212.61, w: 94.3, h: 18.7 }
+        client:     { x: 6.9,   y: 220.9, w: 80.5, h: 22.0 },
+        partenaire: { x: 105.81, y: 220.9, w: 94.3, h: 22.0 }
       }
     };
     // ══════════════════════════════════════════════════════════════════════
@@ -4188,8 +4188,8 @@ function getDefaultLMConfig(){
       annee: { x: 147.21, y: 197.19 }
     },
     signatures: {
-      client:     { x: 6.9,    y: 212.61, w: 85.1, h: 18.7 },
-      partenaire: { x: 105.81, y: 212.61, w: 94.3, h: 18.7 }
+      client:     { x: 6.9,    y: 220.9, w: 80.5, h: 22.0 },
+      partenaire: { x: 105.81, y: 220.9, w: 94.3, h: 22.0 }
     }
   };
 }
