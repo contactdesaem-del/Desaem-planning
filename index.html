@@ -243,7 +243,7 @@ textarea.form-input{min-height:80px;resize:vertical}
     <h2>Connectez-vous</h2>
     <input type="text" id="login-user" placeholder="Identifiant" autocomplete="username">
     <input type="password" id="login-pass" placeholder="Mot de passe" autocomplete="current-password">
-    <button onclick="doLogin()">Se connecter</button>
+    <button onclick="doLogin(this)">Se connecter</button>
     <p class="login-error" id="login-err"></p>
     
   </div>
@@ -804,26 +804,26 @@ let missionFilter = 'tous';
 let caPeriod = 'mois';
 
 const USERS = [
-  {id:1, login:'hilel', pass:'desaem2024', nom:'Hilel', role:'admin', isAdmin:true},
-  {id:2, login:'thomas', pass:'monteur123', nom:'Thomas', role:'Monteur', isAdmin:false},
-  {id:3, login:'karim', pass:'monteur123', nom:'Karim', role:'Monteur', isAdmin:false},
-  {id:4, login:'mehdi', pass:'monteur123', nom:'Mehdi', role:'Monteur', isAdmin:false},
-  {id:5, login:'lucas', pass:'monteur123', nom:'Lucas', role:'Monteur', isAdmin:false},
-  {id:6, login:'yassine', pass:'monteur123', nom:'Yassine', role:'Monteur', isAdmin:false},
-  {id:7, login:'atef', pass:'monteur123', nom:'Atef', role:'Monteur', isAdmin:false},
-  {id:8, login:'driss', pass:'monteur124', nom:'Driss', role:'Monteur', isAdmin:false},
-  {id:9, login:'dilel', pass:'monteur125', nom:'Dilel', role:'Monteur', isAdmin:false},
+  {id:1, login:'hilel', nom:'Hilel', role:'admin', isAdmin:true},
+  {id:2, login:'thomas', nom:'Thomas', role:'Monteur', isAdmin:false},
+  {id:3, login:'karim', nom:'Karim', role:'Monteur', isAdmin:false},
+  {id:4, login:'mehdi', nom:'Mehdi', role:'Monteur', isAdmin:false},
+  {id:5, login:'lucas', nom:'Lucas', role:'Monteur', isAdmin:false},
+  {id:6, login:'yassine', nom:'Yassine', role:'Monteur', isAdmin:false},
+  {id:7, login:'atef', nom:'Atef', role:'Monteur', isAdmin:false},
+  {id:8, login:'driss', nom:'Driss', role:'Monteur', isAdmin:false},
+  {id:9, login:'dilel', nom:'Dilel', role:'Monteur', isAdmin:false},
 ];
 
 let employees = [
-  {id:2, nom:'Thomas', role:'Monteur', login:'thomas', pass:'monteur123', actif:true},
-  {id:3, nom:'Karim', role:'Monteur', login:'karim', pass:'monteur123', actif:true},
-  {id:4, nom:'Mehdi', role:'Monteur', login:'mehdi', pass:'monteur123', actif:true},
-  {id:5, nom:'Lucas', role:'Monteur', login:'lucas', pass:'monteur123', actif:true},
-  {id:6, nom:'Yassine', role:'Monteur', login:'yassine', pass:'monteur123', actif:true},
-  {id:7, nom:'Atef', role:'Monteur', login:'atef', pass:'monteur123', actif:true},
-  {id:8, nom:'Driss', role:'Monteur', login:'driss', pass:'monteur124', actif:true},
-  {id:9, nom:'Dilel', role:'Monteur', login:'dilel', pass:'monteur125', actif:true},
+  {id:2, nom:'Thomas', role:'Monteur', login:'thomas', actif:true},
+  {id:3, nom:'Karim', role:'Monteur', login:'karim', actif:true},
+  {id:4, nom:'Mehdi', role:'Monteur', login:'mehdi', actif:true},
+  {id:5, nom:'Lucas', role:'Monteur', login:'lucas', actif:true},
+  {id:6, nom:'Yassine', role:'Monteur', login:'yassine', actif:true},
+  {id:7, nom:'Atef', role:'Monteur', login:'atef', actif:true},
+  {id:8, nom:'Driss', role:'Monteur', login:'driss', actif:true},
+  {id:9, nom:'Dilel', role:'Monteur', login:'dilel', actif:true},
 ];
 
 let missions = [];
@@ -837,7 +837,7 @@ function generateMissionId(){
   return Date.now() * 1000 + Math.floor(Math.random() * 1000);
 }
 
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbw--LkqZxBGgYtONPp3X1Ch1K2UU8iOVqy--RESGJzlvnphVABAu7RbAgllQMFF0ktz6A/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzWQ4H10OUPPBKf6IVYnANj8uqDjo9epO7gperAEdbD-_6q-flYNWi9Iq9U9mRfCi_DfQ/exec';
 
 async function saveMissionsToSheets() {
   try {
@@ -940,7 +940,7 @@ function showSyncIndicator(loading) {
 }
 
 // ══ LOGIN ═════════════════════════════════════════════════════════════════════
-async function doLogin(){
+async function doLogin(btn){
   const login = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value.trim();
   const errEl = document.getElementById('login-err');
@@ -953,40 +953,40 @@ async function doLogin(){
 
   console.log('[Login] Tentative pour:', login);
 
-  // Cherche dans USERS (statique + admins + précédemment chargés)
-  let user = USERS.find(u=>u.login.toLowerCase()===login.toLowerCase() && u.pass===pass);
-
-  // Cherche dans employees (monteurs et admins dynamiques)
-  if(!user){
-    const emp = employees.find(e=>e.login && e.login.toLowerCase()===login.toLowerCase() && e.pass===pass && e.actif!==false);
-    if(emp){
-      user = { id:emp.id, login:emp.login, pass:emp.pass, nom:emp.nom||emp.login, role:emp.role||'Monteur', isAdmin:emp.isAdmin===true, actif:true };
-      if(!USERS.find(u=>u.login.toLowerCase()===emp.login.toLowerCase())) USERS.push(user);
-    }
-  }
-
-  // ★ CORRECTION BUG 2 : cherche dans clients (comptes clients)
-  if(!user){
-    const cli = clients.find(c=>c.login && c.login.toLowerCase()===login.toLowerCase() && c.pass===pass);
-    if(cli){
-      if(cli.actif === false){
-        errEl.textContent = 'Ce compte est désactivé. Contactez DESAEM.';
-        return;
-      }
-      user = { id:cli.id, login:cli.login, pass:cli.pass, nom:cli.nom, role:'client', isAdmin:false, actif:true };
-      if(!USERS.find(u=>u.login.toLowerCase()===cli.login.toLowerCase())) USERS.push(user);
-      console.log('[Login] Connexion client:', cli.nom);
-    }
-  }
-
-  if(!user){
-    errEl.textContent = 'Identifiant ou mot de passe incorrect';
-    console.warn('[Login] Échec — login:', login, '| USERS:', USERS.length, '| employees:', employees.length, '| clients:', clients.length);
+  // ★ Vérification du mot de passe entièrement côté serveur — le mot de passe
+  // n'est jamais comparé ni stocké en clair dans le navigateur, et le serveur
+  // ne renvoie jamais le mot de passe dans sa réponse.
+  setBtnLoading(btn, true, 'Connexion…');
+  let result;
+  try {
+    const res = await fetch(SHEETS_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'login', login, pass })
+    });
+    result = await res.json();
+  } catch(err){
+    setBtnLoading(btn, false);
+    errEl.textContent = 'Impossible de contacter le serveur. Vérifiez votre connexion.';
+    console.error('[Login] Erreur réseau:', err);
     return;
   }
-  if(user.actif === false){
-    errEl.textContent = 'Ce compte est désactivé';
+  setBtnLoading(btn, false);
+
+  if(!result || !result.ok){
+    if(result && result.error === 'compte désactivé'){
+      errEl.textContent = 'Ce compte est désactivé. Contactez DESAEM.';
+    } else {
+      errEl.textContent = 'Identifiant ou mot de passe incorrect';
+    }
+    console.warn('[Login] Échec — login:', login);
     return;
+  }
+
+  const user = result.user; // ne contient jamais de mot de passe
+  // Garde USERS synchronisé (utilisé ailleurs dans l'appli pour l'affichage,
+  // jamais pour vérifier un mot de passe désormais)
+  if(!USERS.find(u=>u.login.toLowerCase()===user.login.toLowerCase())){
+    USERS.push(user);
   }
 
   console.log('[Login] ✅ Connecté:', user.nom, '| rôle:', user.role, '| id:', user.id, '(type:', typeof user.id, ')');
@@ -1013,7 +1013,7 @@ function doLogout(){
   document.getElementById('login-err').textContent='';
 }
 
-document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin(document.querySelector('.login-box button'))});
 
 // ★ INIT APP — chargement complet AVANT toute tentative de login
 // Garantit que clients/employees sont disponibles sur tous les appareils
@@ -4373,12 +4373,14 @@ async function loadClientsFromSheets(){
 
 function syncClientsToUsers(){
   clients.forEach(function(c){
-    if(!c.login || !c.pass) return;
+    // ★ Le serveur ne renvoie plus jamais le mot de passe (c.pass est toujours
+    // undefined ici) — on ne le vérifie donc plus pour synchroniser USERS,
+    // qui ne sert plus qu'à l'affichage (nom, rôle), plus à l'authentification.
+    if(!c.login) return;
     const existing = USERS.find(u=>u.login.toLowerCase()===c.login.toLowerCase());
     if(!existing){
-      USERS.push({id:c.id, login:c.login, pass:c.pass, nom:c.nom, role:'client', isAdmin:false, actif:c.actif!==false});
+      USERS.push({id:c.id, login:c.login, nom:c.nom, role:'client', isAdmin:false, actif:c.actif!==false});
     } else {
-      existing.pass = c.pass;
       existing.actif = c.actif;
     }
   });
