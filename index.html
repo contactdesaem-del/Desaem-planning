@@ -210,6 +210,24 @@ textarea.form-input{min-height:80px;resize:vertical}
   .form-row{grid-template-columns:1fr 1fr 1fr}
   .content.planning-active{padding:0 !important;max-width:100% !important;margin:0 !important;width:100% !important}
 }
+/* ── GRANDS ÉCRANS (desktop) ─────────────────────────────────────────────
+   Le contenu profite de plus de largeur au lieu de rester coincé dans une
+   colonne étroite de 700px perdue au milieu de l'écran. Le Dashboard passe
+   sur 4 colonnes pour les statistiques et affiche le CA + les prochaines
+   missions côte à côte. Le mobile et la tablette (<1024px) ne sont pas
+   affectés par ce bloc. */
+@media(min-width:1024px){
+  .content{max-width:1180px}
+  #tab-dashboard .stats-grid{grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}
+  #tab-dashboard .stat{padding:1.5rem 1rem;border-radius:14px}
+  #tab-dashboard .stat-num{font-size:2.2rem}
+  #tab-dashboard .stat-lbl{font-size:.82rem;margin-top:.35rem}
+  #tab-dashboard .dash-lower-row{display:grid;grid-template-columns:1fr 1.4fr;gap:1.25rem;align-items:start}
+  #tab-dashboard .dash-lower-row .card{margin-bottom:0}
+}
+@media(min-width:1440px){
+  .content{max-width:1320px}
+}
 @media(max-width:599px){
   .content.planning-active{padding:0 !important}
   #planning-view{height:calc(100vh - 130px) !important}
@@ -273,23 +291,25 @@ textarea.form-input{min-height:80px;resize:vertical}
         <div class="stat" style="cursor:pointer" onclick="goToList('en_attente')" title="Voir missions en attente"><div class="stat-num" id="stat-attente">0</div><div class="stat-lbl">En attente ›</div></div>
         <div class="stat" style="cursor:pointer" onclick="goToList('termine')" title="Voir missions terminées"><div class="stat-num" id="stat-termine">0</div><div class="stat-lbl">Terminées ›</div></div>
       </div>
-      <div class="card" id="ca-card" style="display:none">
-        <div class="card-title">💰 Chiffre d'affaires</div>
-        <div class="filter-row">
-          <button class="filter-btn active" onclick="setCAPeriod('mois',this)">Ce mois</button>
-          <button class="filter-btn" onclick="setCAPeriod('trimestre',this)">Trimestre</button>
-          <button class="filter-btn" onclick="setCAPeriod('annee',this)">Année</button>
+      <div class="dash-lower-row">
+        <div class="card" id="ca-card" style="display:none">
+          <div class="card-title">💰 Chiffre d'affaires</div>
+          <div class="filter-row">
+            <button class="filter-btn active" onclick="setCAPeriod('mois',this)">Ce mois</button>
+            <button class="filter-btn" onclick="setCAPeriod('trimestre',this)">Trimestre</button>
+            <button class="filter-btn" onclick="setCAPeriod('annee',this)">Année</button>
+          </div>
+          <div style="text-align:center;margin:.5rem 0">
+            <span style="font-size:2rem;font-weight:700;color:var(--copper)" id="ca-val">0 €</span>
+            <span style="font-size:.8rem;color:var(--grey);display:block">HT</span>
+          </div>
+          <div class="bar-chart" id="ca-bars"></div>
+          <div style="display:flex;gap:4px" id="ca-bar-labels"></div>
         </div>
-        <div style="text-align:center;margin:.5rem 0">
-          <span style="font-size:2rem;font-weight:700;color:var(--copper)" id="ca-val">0 €</span>
-          <span style="font-size:.8rem;color:var(--grey);display:block">HT</span>
+        <div class="card">
+          <div class="card-title">📅 Prochaines missions</div>
+          <div id="upcoming-missions"></div>
         </div>
-        <div class="bar-chart" id="ca-bars"></div>
-        <div style="display:flex;gap:4px" id="ca-bar-labels"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">📅 Prochaines missions</div>
-        <div id="upcoming-missions"></div>
       </div>
     </div>
 
