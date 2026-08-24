@@ -224,6 +224,20 @@ textarea.form-input{min-height:80px;resize:vertical}
   #tab-dashboard .stat-lbl{font-size:.82rem;margin-top:.35rem}
   #tab-dashboard .dash-lower-row{display:grid;grid-template-columns:1fr 1.4fr;gap:1.25rem;align-items:start}
   #tab-dashboard .dash-lower-row .card{margin-bottom:0}
+
+  /* Équipe & Clients : listes en grille plutôt qu'empilées sur une colonne */
+  #employes-list, #clients-list{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+    gap:.75rem;
+    align-items:start;
+  }
+  #employes-list .emp-item, #clients-list .client-item{margin-bottom:0}
+  #employes-list .section-label{grid-column:1/-1;margin-top:.25rem}
+  #employes-list .section-spacer{display:none} /* la grille gère déjà l'espacement */
+
+  /* Recherche : les résultats profitent aussi de la largeur disponible */
+  #tab-recherche > div{max-width:900px;margin:0 auto}
 }
 @media(min-width:1440px){
   .content{max-width:1320px}
@@ -3093,7 +3107,7 @@ function renderEmployes(){
 
   // Admins section
   const admins = USERS.filter(u=>u.isAdmin);
-  let adminHtml = '<p style="font-size:.8rem;font-weight:600;color:var(--grey);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Administrateurs</p>';
+  let adminHtml = '<p class="section-label" style="font-size:.8rem;font-weight:600;color:var(--grey);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Administrateurs</p>';
   adminHtml += admins.map(a=>{
     const canDelete = isHilel() && a.login.toLowerCase() !== 'hilel';
     return `
@@ -3110,7 +3124,7 @@ function renderEmployes(){
     </div>`;
   }).join('');
 
-  adminHtml += '<div style="height:.75rem"></div><p style="font-size:.8rem;font-weight:600;color:var(--grey);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Monteurs</p>';
+  adminHtml += '<div class="section-spacer" style="height:.75rem"></div><p class="section-label" style="font-size:.8rem;font-weight:600;color:var(--grey);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Monteurs</p>';
 
   const monteurs = employees.filter(e=>!e.isAdmin);
   const monteursHtml = monteurs.map(e=>`
@@ -3721,6 +3735,36 @@ function previewFiles(input){
 
 const IMGBB_KEY = '2742fcdf6c38011943a7a7a3d8138cf2';
 
+// ══ HÉBERGEMENT DES SIGNATURES ═══════════════════════════════════════════════
+// Une cellule Google Sheets est limitée à 50 000 caractères. Les signatures
+// capturées sur un <canvas> génèrent facilement 20 000 à 50 000+ caractères en
+// base64 — les stocker directement dans le JSON d'une mission fait donc courir
+// un vrai risque de dépassement silencieux (données tronquées / sauvegarde qui
+// échoue). On héberge donc chaque signature sur ImgBB (même service déjà
+// utilisé pour les photos en pièce jointe) et on ne conserve que son URL
+// (quelques dizaines de caractères) dans les données de la mission.
+// En cas d'échec réseau, on garde la dataURL d'origine en dernier recours
+// plutôt que de perdre la signature (dégradation silencieuse, pas de blocage).
+async function uploadSignatureImage(dataUrl, label){
+  try {
+    const formData = new FormData();
+    formData.append('key', IMGBB_KEY);
+    formData.append('image', dataUrl.split(',')[1]);
+    formData.append('name', (label || 'signature') + '_' + Date.now());
+    const res = await fetch('https://api.imgbb.com/1/upload', {method:'POST', body:formData});
+    const data = await res.json();
+    if(data.success && data.data && data.data.url){
+      return data.data.display_url || data.data.url;
+    }
+    console.warn('[Signature] Échec upload ImgBB, conservation en base64 (risque de dépassement de cellule) :', data);
+    return dataUrl;
+  } catch(err){
+    console.warn('[Signature] Erreur réseau upload signature, conservation en base64 :', err);
+    return dataUrl;
+  }
+}
+
+
 async function uploadFiles(btn){
   const input = document.getElementById('upload-file');
   if(!input.files.length){showToast('Sélectionne un fichier');return}
@@ -4320,7 +4364,12 @@ async function saveSignature(btn){
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR');
   const heureStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-  const sigDataUrl = sigCanvas.toDataURL('image/png');
+  const sigDataUrlRaw = sigCanvas.toDataURL('image/png');
+
+  setBtnLoading(btn, true, 'Envoi de la signature…');
+  // ★ On héberge la signature (au lieu de la stocker en base64 dans le Sheet)
+  // AVANT de construire l'objet mission, pour ne jamais persister de base64.
+  const sigDataUrl = await uploadSignatureImage(sigDataUrlRaw, 'signature_mission_' + sigMissionId);
 
   m.signature = {
     nom, date: dateStr, heure: heureStr,
@@ -5031,13 +5080,23 @@ async function saveLMBon(btn){
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR');
   const heureStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-  const sigClient = document.getElementById('lm-canvas-client').toDataURL('image/png');
-  const sigEntreprise = document.getElementById('lm-canvas-entreprise').toDataURL('image/png');
+  const sigClientRaw = document.getElementById('lm-canvas-client').toDataURL('image/png');
+  const sigEntrepriseRaw = document.getElementById('lm-canvas-entreprise').toDataURL('image/png');
   setBtnLoading(btn, true, 'Génération…');
   try {
-    await generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr});
+    // ★ Le PDF immédiat utilise directement les images brutes du canvas (rapide,
+    // aucune dépendance réseau). Seule la version PERSISTÉE (envoyée au Sheet)
+    // doit éviter le base64 pour ne pas dépasser la limite de 50 000 caractères
+    // par cellule — elle utilise donc les URLs hébergées, une fois l'upload fait.
+    await generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient:sigClientRaw,sigEntreprise:sigEntrepriseRaw,dateStr});
     const m = missions.find(m=>m.id===lmMissionId);
     if(m){
+      setBtnLoading(btn, true, 'Envoi des signatures…');
+      const [sigClient, sigEntreprise] = await Promise.all([
+        uploadSignatureImage(sigClientRaw, 'lm_client_mission_' + lmMissionId),
+        uploadSignatureImage(sigEntrepriseRaw, 'lm_entreprise_mission_' + lmMissionId)
+      ]);
+      setBtnLoading(btn, true, 'Enregistrement…');
       m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
       m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient};
       m.conforme = sansReserve;
