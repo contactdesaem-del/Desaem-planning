@@ -416,7 +416,7 @@ textarea.form-input{min-height:80px;resize:vertical}
 
 <!-- ══ MODAL MISSION STYLE GOOGLE AGENDA ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="mission-modal" style="display:none" onclick="shakeMissionModal(event)">
-  <div class="modal" style="border-radius:12px;width:95%;max-width:560px;padding:0;overflow:hidden">
+  <div class="modal" style="border-radius:12px;width:95%;max-width:680px;padding:0;overflow:hidden;max-height:92vh;display:flex;flex-direction:column">
     <div style="background:var(--dark);padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
       <div style="flex:1;display:flex;flex-direction:column;gap:.2rem">
         <span id="mission-modal-title" style="font-size:.7rem;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.08em">Nouvelle mission</span>
@@ -455,7 +455,7 @@ textarea.form-input{min-height:80px;resize:vertical}
       <div onclick="selectColor(this,'#7F8C8D')" style="width:28px;height:28px;border-radius:50%;background:#7F8C8D;cursor:pointer;border:3px solid transparent" title="Gris"></div>
       <input type="hidden" id="m-color" value="#C67C4E">
     </div>
-    <div style="padding:1rem 1.25rem;max-height:62vh;overflow-y:auto">
+    <div style="padding:1rem 1.25rem;flex:1;overflow-y:auto">
       <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.9rem;flex-wrap:wrap">
         <span style="font-size:1.2rem">📅</span>
         <input class="form-input" type="date" id="m-date" style="flex:1;min-width:130px">
@@ -484,7 +484,7 @@ textarea.form-input{min-height:80px;resize:vertical}
       </div>
       <div style="display:flex;align-items:flex-start;gap:.6rem;margin-bottom:.9rem">
         <span style="font-size:1.2rem;margin-top:.3rem">📝</span>
-        <textarea class="form-input" id="m-desc" placeholder="Description..." style="flex:1;min-height:90px;white-space:pre-wrap" onpaste="handlePaste(event,this)"></textarea>
+        <textarea class="form-input" id="m-desc" placeholder="Description..." style="flex:1;min-height:160px;white-space:pre-wrap" onpaste="handlePaste(event,this)"></textarea>
       </div>
       <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.9rem">
         <span style="font-size:1.2rem">🏢</span>
@@ -499,6 +499,13 @@ textarea.form-input{min-height:80px;resize:vertical}
       <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.9rem" id="m-prix-group">
         <span style="font-size:1.2rem">💰</span>
         <input class="form-input" type="number" id="m-prix" placeholder="Prix HT (€) — admin uniquement" style="flex:1">
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:.6rem;margin-bottom:.9rem" id="m-note-admin-group">
+        <span style="font-size:1.2rem;margin-top:.3rem">🔒</span>
+        <div style="flex:1">
+          <div style="font-size:.75rem;color:var(--grey);margin-bottom:.3rem">Note interne — visible uniquement par les admins</div>
+          <textarea class="form-input" id="m-note-admin" placeholder="Ex : infos sensibles, contexte client, consignes internes..." style="width:100%;min-height:55px;white-space:pre-wrap;background:#FBF6EF;border-color:#EAD9BE"></textarea>
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.9rem">
         <span style="font-size:1.2rem">🔖</span>
@@ -1355,6 +1362,8 @@ function renderAll(options){
   }
   document.getElementById('m-prix-group').style.display = currentUser.isAdmin?'':'none';
   document.getElementById('m-facture-group').style.display = currentUser.isAdmin?'':'none';
+  const noteAdminGroupEl = document.getElementById('m-note-admin-group');
+  if(noteAdminGroupEl) noteAdminGroupEl.style.display = currentUser.isAdmin?'':'none';
   document.getElementById('ca-card').style.display = currentUser.isAdmin?'':'none';
   populateClientDropdown();
 }
@@ -2846,6 +2855,7 @@ function openMissionModal(m=null){
   document.getElementById('m-tel').value=m?m.tel:'';
   document.getElementById('m-desc').value=m?m.desc:'';
   document.getElementById('m-prix').value=m?m.prix:'';
+  document.getElementById('m-note-admin').value=m?(m.noteAdmin||''):'';
   document.getElementById('m-statut').value=m?m.statut:'en_attente';
   document.getElementById('m-camions').value=m?m.camions:1;
   // Set client link dropdown
@@ -2960,6 +2970,57 @@ function findMonteurConflicts(candidate, excludeId){
   return conflicts;
 }
 
+// ══ HISTORIQUE DES MODIFICATIONS ═══════════════════════════════════════════════
+// Chaque mission garde un journal des changements notables (date, heure,
+// monteurs, statut, adresse, prix...) : qui a modifié quoi et quand.
+const STATUT_LABELS_HISTORY = {en_attente:'En attente', confirme:'Confirmée', facture:'Facturée', en_cours:'En cours', termine:'Terminée', annule:'Annulée'};
+
+function addMissionHistory(mission, text){
+  if(!mission.history) mission.history = [];
+  const now = new Date();
+  mission.history.unshift({
+    ts: now.toISOString(),
+    date: now.toLocaleDateString('fr-FR'),
+    heure: now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
+    par: (currentUser && currentUser.nom) || 'Système',
+    text
+  });
+  // On garde un historique raisonnable, pas illimité
+  if(mission.history.length > 50) mission.history = mission.history.slice(0,50);
+}
+
+function monteurNames(ids){
+  return (ids||[]).map(id=>{
+    const e = employees.find(e=>parseInt(e.id)===parseInt(id));
+    return e ? e.nom : ('#'+id);
+  }).join(', ') || 'aucun';
+}
+
+// Compare l'ancienne et la nouvelle version d'une mission et journalise les
+// changements notables dans son historique.
+function logMissionChanges(oldM, newM){
+  const changes = [];
+  if(oldM.date !== newM.date) changes.push('Date : ' + (oldM.date||'—') + ' → ' + (newM.date||'—'));
+  if(oldM.heure !== newM.heure || oldM.heureFin !== newM.heureFin){
+    changes.push('Horaire : ' + (oldM.heure||'—') + '–' + (oldM.heureFin||'—') + ' → ' + (newM.heure||'—') + '–' + (newM.heureFin||'—'));
+  }
+  const oldMonteurs = JSON.stringify([...(oldM.monteurs||[])].sort());
+  const newMonteurs = JSON.stringify([...(newM.monteurs||[])].sort());
+  if(oldMonteurs !== newMonteurs){
+    changes.push('Monteurs : ' + monteurNames(oldM.monteurs) + ' → ' + monteurNames(newM.monteurs));
+  }
+  if(oldM.statut !== newM.statut){
+    changes.push('Statut : ' + (STATUT_LABELS_HISTORY[oldM.statut]||oldM.statut) + ' → ' + (STATUT_LABELS_HISTORY[newM.statut]||newM.statut));
+  }
+  if((oldM.adresse||'') !== (newM.adresse||'')) changes.push('Adresse modifiée');
+  if((oldM.prix||0) !== (newM.prix||0)) changes.push('Prix : ' + (oldM.prix||0) + ' € → ' + (newM.prix||0) + ' €');
+  if((oldM.client||'') !== (newM.client||'')) changes.push('Client : "' + (oldM.client||'') + '" → "' + (newM.client||'') + '"');
+
+  if(changes.length){
+    addMissionHistory(newM, changes.join(' · '));
+  }
+}
+
 function saveMission(){
   const client=document.getElementById('m-client').value.trim()||'Sans titre';
   const date=document.getElementById('m-date').value;
@@ -2985,6 +3046,7 @@ function saveMission(){
     desc:document.getElementById('m-desc').value,
     statut:document.getElementById('m-statut').value,
     prix:parseFloat(document.getElementById('m-prix').value)||0,
+    noteAdmin:document.getElementById('m-note-admin').value||'',
     factureNum:document.getElementById('m-facture').value||'',
     monteurs,
     camions:parseInt(document.getElementById('m-camions').value)||1,
@@ -3007,12 +3069,15 @@ function saveMission(){
 
   if(editingMissionId){
     const idx=missions.findIndex(m=>m.id===editingMissionId);
+    const oldSnapshot = {...missions[idx]};
     missions[idx]={...missions[idx],...mission};
+    logMissionChanges(oldSnapshot, missions[idx]);
     console.log('[saveMission] Mission modifiée id:', editingMissionId, '| monteurs:', JSON.stringify(mission.monteurs));
     showToast('Mission mise à jour ✓');
   } else {
     mission.id=generateMissionId();
     missions.push(mission);
+    addMissionHistory(mission, 'Mission créée (' + monteurNames(mission.monteurs) + ')');
     console.log('[saveMission] Nouvelle mission id:', mission.id, '| client:', mission.client, '| monteurs:', JSON.stringify(mission.monteurs));
     // Vérif : les IDs des monteurs existent-ils dans employees ?
     mission.monteurs.forEach(mid=>{
@@ -4061,6 +4126,30 @@ function openDetailModal(id){
     }
     commentsHtml += '<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:.5rem" onclick="closeDetailModal();openCommentModal(' + id + ')">💬 Ajouter un commentaire</button></div>';
     document.getElementById('detail-content').innerHTML += commentsHtml;
+
+    // ★ Note interne admin — jamais visible par les monteurs ni les clients
+    if(currentUser.isAdmin && m.noteAdmin){
+      var noteHtml = '<div style="margin-top:1rem;padding:.65rem .75rem;background:#FBF6EF;border:1px solid #EAD9BE;border-radius:8px">' +
+        '<div style="font-size:.75rem;color:var(--grey);font-weight:600;margin-bottom:.3rem">🔒 Note interne (admin uniquement)</div>' +
+        '<div style="font-size:.85rem;white-space:pre-wrap">' + m.noteAdmin.replace(/</g,'&lt;') + '</div>' +
+      '</div>';
+      document.getElementById('detail-content').innerHTML += noteHtml;
+    }
+
+    // ★ Historique des modifications — visible admin/monteur uniquement, jamais le client
+    if(m.history && m.history.length > 0){
+      var histHtml = '<details style="margin-top:1rem">' +
+        '<summary style="font-weight:600;font-size:.9rem;color:var(--dark);cursor:pointer;list-style:none;display:flex;align-items:center;gap:.35rem">🕓 Historique des modifications (' + m.history.length + ')</summary>' +
+        '<div style="margin-top:.5rem;max-height:220px;overflow-y:auto">';
+      m.history.forEach(function(h){
+        histHtml += '<div style="font-size:.8rem;padding:.5rem .6rem;border-left:2px solid var(--border);margin-bottom:.35rem">' +
+          '<div style="color:var(--grey);font-size:.72rem">' + h.date + ' à ' + h.heure + ' — ' + h.par + '</div>' +
+          '<div style="color:#444;margin-top:.1rem">' + h.text + '</div>' +
+        '</div>';
+      });
+      histHtml += '</div></details>';
+      document.getElementById('detail-content').innerHTML += histHtml;
+    }
   }
 
   // Re-render attachments with real DOM event handlers (onclick in innerHTML does not work for delete)
@@ -4128,10 +4217,14 @@ function openDetailModal(id){
 async function changeStatus(id, newStatus){
   const m = missions.find(function(m){ return m.id === id; });
   if(!m || !currentUser.isAdmin) return;
+  const oldStatut = m.statut;
   m.statut = newStatus;
   if(newStatus !== 'termine'){
     m.completedBy = null;
     m.completedAt = null;
+  }
+  if(oldStatut !== newStatus){
+    addMissionHistory(m, 'Statut : ' + (STATUT_LABELS_HISTORY[oldStatut]||oldStatut) + ' → ' + (STATUT_LABELS_HISTORY[newStatus]||newStatus));
   }
   await saveMissionsToSheets();
   renderAll();
