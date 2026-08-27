@@ -560,7 +560,7 @@ textarea.form-input{min-height:80px;resize:vertical}
       </div>
     </div>
     <div style="padding:.75rem 1.25rem;border-top:1px solid var(--border);display:flex;gap:.75rem;background:#fafafa">
-      <button class="btn btn-primary" style="flex:1" onclick="saveMission()">✅ Enregistrer</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveMission(this)">✅ Enregistrer</button>
       <button class="btn btn-ghost" onclick="closeMissionModal()">Annuler</button>
     </div>
   </div>
@@ -3140,7 +3140,7 @@ function logMissionChanges(oldM, newM){
   }
 }
 
-function saveMission(){
+async function saveMission(btn){
   const client=document.getElementById('m-client').value.trim()||'Sans titre';
   const date=document.getElementById('m-date').value;
   const adresse=document.getElementById('m-adresse').value.trim();
@@ -3210,8 +3210,48 @@ function saveMission(){
   }
   duplicatingFrom = null;
   const savedDate = mission.date;
+
+  // ★ Upload réel des fichiers sélectionnés dans le champ de la fiche (jusqu'ici,
+  // ce champ ne faisait qu'un aperçu visuel sans jamais envoyer le fichier —
+  // c'est corrigé ici : même mécanisme d'envoi que côté monteur).
+  const finalMission = editingMissionId ? missions.find(mm=>mm.id===editingMissionId) : mission;
+  const fichierInput = document.getElementById('m-fichier');
+  if(fichierInput && fichierInput.files && fichierInput.files.length){
+    if(!finalMission.attachments) finalMission.attachments = [];
+    setBtnLoading(btn, true, 'Envoi des fichiers…');
+    const uploadErrors = [];
+    for(let i=0; i<fichierInput.files.length; i++){
+      const file = fichierInput.files[i];
+      try {
+        const uploaded = await uploadAttachmentFile(file, finalMission.id);
+        finalMission.attachments.push({
+          name: uploaded.name,
+          url: uploaded.url,
+          by: currentUser.nom,
+          date: new Date().toLocaleDateString('fr-FR'),
+          time: new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
+          type: uploaded.type
+        });
+      } catch(e){
+        uploadErrors.push(file.name + ': ' + e.message);
+        console.error('[saveMission] Erreur upload pièce jointe:', e);
+      }
+    }
+    fichierInput.value = '';
+    const previewEl = document.getElementById('m-fichier-preview');
+    if(previewEl) previewEl.innerHTML = '';
+    if(uploadErrors.length){
+      showToast('⚠️ ' + uploadErrors.length + ' fichier(s) non envoyé(s) : ' + uploadErrors[0]);
+    }
+  }
+
+  setBtnLoading(btn, true, 'Enregistrement…');
+  try {
+    await saveMissionsToSheets();
+  } finally {
+    setBtnLoading(btn, false);
+  }
   closeMissionModal();
-  saveMissionsToSheets();
   // ★ Naviguer vers la date de la mission créée/modifiée
   renderAll({missionDate: savedDate});
 }
@@ -3927,6 +3967,49 @@ function previewFiles(input){
 
 const IMGBB_KEY = '2742fcdf6c38011943a7a7a3d8138cf2';
 
+// ══ UPLOAD D'UNE PIÈCE JOINTE (partagé) ═════════════════════════════════════════
+// Logique d'envoi d'un fichier : image -> ImgBB, autre (PDF...) -> Drive via le
+// script Google. Renvoie {name, url, type} en cas de succès, lève une erreur sinon.
+// Utilisé à la fois par le formulaire de création/édition de mission (admin) et
+// par le bouton d'envoi dédié (monteur), pour garantir un comportement identique.
+async function uploadAttachmentFile(file, missionId){
+  const base64 = await fileToBase64(file);
+  const isImage = file.type.startsWith('image/');
+
+  if(isImage){
+    const formData = new FormData();
+    formData.append('key', IMGBB_KEY);
+    formData.append('image', base64);
+    formData.append('name', file.name);
+    const res = await fetch('https://api.imgbb.com/1/upload', {method:'POST', body:formData});
+    const data = await res.json();
+    if(data.success && data.data && data.data.url){
+      return { name: data.data.title || file.name, url: data.data.display_url || data.data.url, type: file.type };
+    }
+    console.error('[Upload] ImgBB error:', data);
+    throw new Error('erreur ImgBB');
+  }
+
+  // PDF / autre document -> Drive via le script Google
+  const res = await fetch(SHEETS_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action: 'upload_file',
+      fileName: file.name,
+      mimeType: file.type,
+      fileData: base64,
+      missionId: missionId,
+      uploadedBy: currentUser.nom
+    })
+  });
+  const data = await res.json();
+  if(data.fileUrl){
+    return { name: file.name, url: data.fileUrl, type: file.type };
+  }
+  throw new Error(data.error || 'erreur serveur');
+}
+
 // ══ HÉBERGEMENT DES SIGNATURES ═══════════════════════════════════════════════
 // Une cellule Google Sheets est limitée à 50 000 caractères. Les signatures
 // capturées sur un <canvas> génèrent facilement 20 000 à 50 000+ caractères en
@@ -3977,67 +4060,16 @@ async function uploadFiles(btn){
     const file = input.files[i];
     progress.textContent = '⏳ Envoi ' + (i+1) + '/' + totalFiles + ' : ' + file.name;
     try {
-      const base64 = await fileToBase64(file);
-      const isImage = file.type.startsWith('image/');
-      let fileUrl = '';
-      let fileName = file.name;
-
-      if(isImage){
-        const formData = new FormData();
-        formData.append('key', IMGBB_KEY);
-        formData.append('image', base64);
-        formData.append('name', file.name);
-        const res = await fetch('https://api.imgbb.com/1/upload', {method:'POST', body:formData});
-        const data = await res.json();
-        if(data.success && data.data && data.data.url){
-          fileUrl = data.data.display_url || data.data.url;
-          fileName = data.data.title || file.name;
-          success++;
-        } else {
-          errors.push(file.name + ': erreur ImgBB');
-          console.error('[Upload] ImgBB error:', data);
-          continue;
-        }
-      } else {
-        // PDF via Google Apps Script (note: no-cors won't give response body)
-        // Use a regular fetch with CORS to get the response
-        try {
-          const res = await fetch(SHEETS_URL, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-              action: 'upload_file',
-              fileName: file.name,
-              mimeType: file.type,
-              fileData: base64,
-              missionId: uploadingMissionId,
-              uploadedBy: currentUser.nom
-            })
-          });
-          const data = await res.json();
-          if(data.fileUrl){
-            fileUrl = data.fileUrl;
-            success++;
-          } else {
-            errors.push(file.name + ': ' + (data.error||'erreur serveur'));
-            continue;
-          }
-        } catch(corsErr){
-          // Fallback: store as data URI if CORS blocks (not ideal but keeps data)
-          console.warn('[Upload] PDF via Sheets failed, storing locally:', corsErr);
-          errors.push(file.name + ': impossible d\'uploader (CORS). Contactez l\'admin.');
-          continue;
-        }
-      }
-
+      const uploaded = await uploadAttachmentFile(file, uploadingMissionId);
       mission.attachments.push({
-        name: fileName,
-        url: fileUrl,
+        name: uploaded.name,
+        url: uploaded.url,
         by: currentUser.nom,
         date: new Date().toLocaleDateString('fr-FR'),
         time: new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
-        type: file.type
+        type: uploaded.type
       });
+      success++;
     } catch(e){
       errors.push(file.name + ': ' + e.message);
       console.error('[Upload] Error:', e);
@@ -4982,7 +5014,6 @@ function clientMissionCard(m){
     ? new Date(m.date+'T00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})
     : '—';
   const images = (m.attachments||[]).filter(a=>a.type&&a.type.startsWith('image/'));
-  const docs   = (m.attachments||[]).filter(a=>!a.type||!a.type.startsWith('image/'));
 
   return `<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:.85rem">
 
@@ -5002,18 +5033,6 @@ function clientMissionCard(m){
           style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;border:1.5px solid transparent;transition:border-color .15s">`).join('')}
       </div>
       <button class="btn btn-ghost btn-sm" style="width:100%;font-size:.78rem" onclick="downloadAllAttachments(${m.id},'images')">⬇️ Télécharger toutes les photos</button>
-    </div>` : ''}
-
-    ${docs.length ? `
-    <div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.6rem">
-      <div style="font-size:.76rem;font-weight:600;color:var(--grey);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">📎 Documents (${docs.length})</div>
-      ${docs.map(a=>`
-      <div style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px solid #f0f0f0">
-        <span>📄</span>
-        <span style="flex:1;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name||'Document'}</span>
-        <a href="${a.url}" target="_blank" download="${a.name||'document'}" class="btn btn-ghost btn-sm" style="font-size:.75rem">⬇️</a>
-      </div>`).join('')}
-      <button class="btn btn-ghost btn-sm" style="width:100%;font-size:.78rem;margin-top:.35rem" onclick="downloadAllAttachments(${m.id},'docs')">⬇️ Télécharger tous les documents</button>
     </div>` : ''}
 
     <div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.6rem">
@@ -5072,7 +5091,9 @@ async function generatePDFReport(missionId){
   console.log('[PDF] Génération rapport mission:', missionId, m.client);
 
   const images = (m.attachments||[]).filter(a=>a.type&&a.type.startsWith('image/'));
-  const docs   = (m.attachments||[]).filter(a=>!a.type||!a.type.startsWith('image/'));
+  // ★ Les documents restent internes : ce rapport est aussi téléchargé par le
+  // client (via son espace), donc on ne liste les documents que pour admin/monteur.
+  const docs   = currentUser.role !== 'client' ? (m.attachments||[]).filter(a=>!a.type||!a.type.startsWith('image/')) : [];
   const sig    = m.signature;
   const now    = new Date().toLocaleDateString('fr-FR');
   const dateIntervention = m.date
