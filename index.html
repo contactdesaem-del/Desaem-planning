@@ -136,6 +136,10 @@ textarea.form-input{min-height:80px;resize:vertical}
 .modal{background:var(--white);border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:1.5rem}
 .modal-title{font-size:1.1rem;font-weight:600;margin-bottom:1.25rem;display:flex;justify-content:space-between;align-items:center}
 .modal-close{background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--grey);line-height:1}
+/* ── Icônes d'action façon Google Calendar (fiche de détail mission) ── */
+.icon-btn{background:var(--light);border:none;cursor:pointer;width:34px;height:34px;min-width:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.05rem;color:var(--mid);transition:background .15s,color .15s}
+.icon-btn:hover,.icon-btn:active{background:var(--border);color:var(--dark)}
+.icon-btn.icon-btn-danger:hover,.icon-btn.icon-btn-danger:active{background:#FDEDEC;color:var(--danger)}
 
 /* CHECKBOX LIST */
 .check-list{display:flex;flex-direction:column;gap:.4rem;max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:.5rem}
@@ -258,6 +262,18 @@ textarea.form-input{min-height:80px;resize:vertical}
   .modal{width:96% !important;max-width:96% !important}
   .stats-grid{grid-template-columns:1fr 1fr}
   .mini-cal-sidebar-el{display:none !important}
+  /* ★ Panneau de notifications : ancré à l'écran plutôt qu'à la petite cloche,
+     pour ne plus être coupé sur le bord de l'écran (position:fixed + marges
+     symétriques au lieu d'un "right:0" relatif à un élément trop étroit). */
+  #notif-panel{
+    position:fixed !important;
+    left:.5rem !important;
+    right:.5rem !important;
+    top:56px !important;
+    width:auto !important;
+    max-width:none !important;
+  }
+  .topbar-user{display:none} /* le nom prend trop de place à côté de la cloche sur petit écran */
 }
 @keyframes btn-spin{ to{ transform:rotate(360deg); } }
 .btn-spinner{
@@ -825,8 +841,11 @@ textarea.form-input{min-height:80px;resize:vertical}
 <div class="modal-overlay" id="detail-modal" style="display:none" onclick="if(event.target===this)closeDetailModal()">
   <div class="modal" style="max-height:88vh;overflow-y:auto;border-radius:16px">
     <div class="modal-title">
-      <span id="detail-client-name" style="font-size:1.1rem"></span>
-      <button class="modal-close" onclick="closeDetailModal()">×</button>
+      <span id="detail-client-name" style="font-size:1.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1"></span>
+      <div style="display:flex;align-items:center;gap:.1rem;flex-shrink:0">
+        <div id="detail-header-actions" style="display:flex;align-items:center;gap:.1rem"></div>
+        <button class="modal-close icon-btn" style="font-size:1.3rem" onclick="closeDetailModal()">×</button>
+      </div>
     </div>
     <div id="detail-content"></div>
   </div>
@@ -1371,8 +1390,8 @@ function computeNotifications(){
     if(!m.history || !m.history.length) return;
     let relevant = false;
     if(currentUser.isAdmin) relevant = true;
-    else if(isClient) relevant = parseInt(m.clientId) === parseInt(currentUser.id);
-    else relevant = (m.monteurs||[]).some(function(mid){ return parseInt(mid) === parseInt(currentUser.id); });
+    else if(isClient) relevant = parseInt(m.clientId) === parseInt(currentUser.id) && m.statut === 'termine';
+    else relevant = (m.monteurs||[]).some(function(mid){ return parseInt(mid) === parseInt(currentUser.id); }) && m.statut !== 'en_attente';
     if(!relevant) return;
 
     m.history.forEach(function(h){
@@ -1489,22 +1508,7 @@ function renderAll(options){
 // ══ DASHBOARD ═════════════════════════════════════════════════════════════════
 function renderDashboard(){
   const now = new Date();
-  let myMissions;
-  if(currentUser.isAdmin){
-    myMissions = missions;
-  } else if(currentUser.role === 'client'){
-    myMissions = missions.filter(m=>parseInt(m.clientId)===parseInt(currentUser.id));
-  } else {
-    // Monteur — même logique que getMyMissions avec possibleIds
-    const uid = parseInt(currentUser.id);
-    const uLogin = (currentUser.login||'').toLowerCase();
-    const possibleIds = new Set([uid]);
-    const emp = employees.find(e=>parseInt(e.id)===uid||(e.login||'').toLowerCase()===uLogin);
-    if(emp) possibleIds.add(parseInt(emp.id));
-    const u = USERS.find(u=>(u.login||'').toLowerCase()===uLogin);
-    if(u) possibleIds.add(parseInt(u.id));
-    myMissions = missions.filter(m=>Array.isArray(m.monteurs)&&m.monteurs.some(mid=>possibleIds.has(parseInt(mid)))&&m.statut!=='annule');
-  }
+  const myMissions = getMyMissions();
   const thisMo = myMissions.filter(m=>{const d=new Date(m.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()});
   document.getElementById('stat-total').textContent = thisMo.length;
   document.getElementById('stat-confirme').textContent = thisMo.filter(m=>m.statut==='confirme').length;
@@ -1566,7 +1570,9 @@ let calDate = new Date(); // current reference date
 
 function getMyMissions(){
   if(currentUser.isAdmin) return missions;
-  if(currentUser.role === 'client') return missions.filter(m=>parseInt(m.clientId)===parseInt(currentUser.id));
+  // ★ Le client ne voit que ses missions déjà terminées — jamais celles en
+  // attente, confirmées ou en cours (uniquement le résultat final).
+  if(currentUser.role === 'client') return missions.filter(m=>parseInt(m.clientId)===parseInt(currentUser.id) && m.statut==='termine');
 
   const uid = parseInt(currentUser.id);
   const uLogin = (currentUser.login||'').toLowerCase();
@@ -1594,13 +1600,14 @@ function getMyMissions(){
 
   const result = missions.filter(function(m){
     if(!Array.isArray(m.monteurs)) return false;
-    // ★ CORRECTION : le monteur voit TOUTES ses missions sauf "annule"
-    // "en_attente" était exclu par erreur — c'est justement quand la mission vient d'être créée
+    // ★ Le monteur ne voit PAS les missions "en attente" (réservées à l'admin
+    // tant qu'elles ne sont pas confirmées) — il voit tout le reste
+    // (confirmée, en cours, terminée, facturée, annulée).
     const found = m.monteurs.some(function(mid){
       return possibleIds.has(parseInt(mid));
     });
     if(found) console.log('[Missions]  ✅', m.client, m.date, '| statut:', m.statut, '| monteurs:', m.monteurs);
-    return found && m.statut !== 'annule';
+    return found && m.statut !== 'en_attente';
   });
 
   console.log('[Missions] Missions filtrées:', result.length);
@@ -2479,8 +2486,8 @@ function renderDayView(){
     ].join(';');
 
     mDiv.dataset.missionId = m.id;
-    mDiv.innerHTML = '<div style="font-weight:700">'+m.client+'</div>'
-      +'<div style="opacity:.9;font-size:.72rem">'+formatTime(m.heure)+(m.heureFin?' – '+m.heureFin:'')+'</div>'
+    mDiv.innerHTML = '<div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+m.client+'</div>'
+      +'<div style="opacity:.9;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+formatTime(m.heure)+(m.heureFin?' – '+m.heureFin:'')+'</div>'
       +(m.adresse && heightPx > 55 ? '<div style="opacity:.75;font-size:.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+m.adresse+'</div>' : '');
 
     mDiv.onclick = function(){ if(!mDiv._dragging) openDetailModal(parseInt(mDiv.dataset.missionId)); };
@@ -3604,9 +3611,7 @@ function doQuickSearch(query){
   query = (query||'').trim().toLowerCase();
   if(!query){ el.style.display='none'; return; }
 
-  var myMissions = currentUser.isAdmin ? missions : missions.filter(function(m){
-    const _uid=parseInt(currentUser.id);return Array.isArray(m.monteurs)&&m.monteurs.some(function(mid){return parseInt(mid)===_uid;});
-  });
+  var myMissions = getMyMissions();
   var results = myMissions.filter(function(m){
     return [m.client||'',m.adresse||'',m.tel||'',m.desc||'',m.factureNum||'',m.date||''].join(' ').toLowerCase().indexOf(query) > -1;
   }).slice(0,8);
@@ -3683,9 +3688,7 @@ function doSearch(query){
     return;
   }
 
-  var myMissions = currentUser.isAdmin ? missions : missions.filter(function(m){
-    const _uid=parseInt(currentUser.id);return Array.isArray(m.monteurs)&&m.monteurs.some(function(mid){return parseInt(mid)===_uid;});
-  });
+  var myMissions = getMyMissions();
 
   var results = myMissions.filter(function(m){
     var fields = [
@@ -4134,7 +4137,19 @@ function closeDetailModal(){
 function openDetailModal(id){
   const m = missions.find(m=>m.id===id);
   if(!m) return;
+  const isLM = isLeroyMerlinMission(m);
   document.getElementById('detail-client-name').textContent = '🏗️ ' + m.client;
+  // ★ Icônes d'action façon Google Calendar — Modifier / Dupliquer / Supprimer,
+  // réservées à l'admin, directement dans l'en-tête plutôt qu'en gros boutons
+  // empilés dans le corps de la fiche.
+  const headerActionsEl = document.getElementById('detail-header-actions');
+  if(headerActionsEl){
+    headerActionsEl.innerHTML = currentUser.isAdmin ?
+      '<button class="icon-btn" title="Modifier" onclick="closeDetailModal();editMission(' + id + ')">✏️</button>' +
+      '<button class="icon-btn" title="Dupliquer" onclick="closeDetailModal();duplicateMission(' + id + ')">📋</button>' +
+      '<button class="icon-btn icon-btn-danger" title="Supprimer" onclick="closeDetailModal();deleteMission(' + id + ')">🗑️</button>'
+      : '';
+  }
   const monteurNames = m.monteurs.map(mid=>{
     const e = employees.find(e=>e.id===mid);
     return e ? e.nom : '';
@@ -4211,12 +4226,7 @@ function openDetailModal(id){
       '<div style="font-size:.8rem;color:var(--grey);margin-bottom:.35rem">🔖 Changer le statut</div>' +
       statusSelect +
     '</div>' +
-    '<div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">' +
-      '<button class="btn btn-primary" style="flex:1" onclick="closeDetailModal();editMission(' + id + ')">✏️ Modifier</button>' +
-      '<button class="btn btn-ghost" onclick="closeDetailModal();duplicateMission(' + id + ')">📋 Dupliquer</button>' +
-      '<button class="btn btn-danger" onclick="closeDetailModal();deleteMission(' + id + ')">🗑️</button>' +
-    '</div>' +
-    '<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" style="width:100%;background:#FAF7F3;border-color:var(--copper);color:var(--copper-dk)" onclick="generatePDFReport(' + id + ')">📄 Télécharger le rapport PDF</button></div>' +
+    (isLM ? '' : '<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" style="width:100%;background:#FAF7F3;border-color:var(--copper);color:var(--copper-dk)" onclick="generatePDFReport(' + id + ')">📄 Télécharger le rapport PDF</button></div>') +
     (m.lmBon ? '<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" style="width:100%;background:#E8F5E9;border-color:#007A33;color:#007A33" onclick="downloadExistingLMBon(' + id + ')">📋 Télécharger le bon Leroy Merlin</button></div>' : '') : '';
 
   // Bouton Leroy Merlin — visible pour les monteurs si mission LM
@@ -4960,7 +4970,7 @@ function renderEspaceClient(){
   const currentQuery = existingSearch ? existingSearch.value : '';
 
   const myMissions = missions
-    .filter(m=>parseInt(m.clientId)===parseInt(currentUser.id) && m.statut!=='annule')
+    .filter(m=>parseInt(m.clientId)===parseInt(currentUser.id) && m.statut==='termine')
     .sort((a,b)=> b.date > a.date ? 1 : -1);
 
   el.innerHTML = `
@@ -4982,7 +4992,7 @@ function renderEspaceClient(){
 
     <div id="client-missions-list">
       ${!myMissions.length
-        ? '<div class="empty"><p>Aucune intervention disponible.</p></div>'
+        ? '<div class="empty"><p>Aucune intervention terminée pour le moment.</p></div>'
         : myMissions.map(m=>clientMissionCard(m)).join('')
       }
     </div>`;
@@ -4995,7 +5005,7 @@ function filterClientMissions(){
   const query = (document.getElementById('client-search').value||'').trim().toLowerCase();
   const clientRecord = clients.find(c=>c.id===currentUser.id)||{};
   const myMissions = missions
-    .filter(m=>parseInt(m.clientId)===parseInt(currentUser.id) && m.statut!=='annule')
+    .filter(m=>parseInt(m.clientId)===parseInt(currentUser.id) && m.statut==='termine')
     .sort((a,b)=>b.date>a.date?1:-1);
 
   const filtered = !query ? myMissions : myMissions.filter(m=>
