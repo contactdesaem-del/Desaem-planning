@@ -1694,7 +1694,10 @@ function renderCalendar(){
     label.textContent = months[calMonth] + ' ' + calYear;
   }
 
-  if(calView === 'month') renderMonthView();
+  if(calView === 'month') {
+    if(window.innerWidth <= 599) renderMobileMonthView();
+    else renderMonthView();
+  }
   else if(calView === 'week') {
     // ★ Sur mobile, vue agenda style Google Calendar au lieu de la grille horaire serrée
     if(window.innerWidth <= 599) renderMobileAgendaWeek();
@@ -2691,6 +2694,135 @@ function renderDayView(){
 }
 
 // ── MONTH VIEW ────────────────────────────────────────────────────────────────
+// ── MOBILE MONTH VIEW (façon Google Agenda) ─────────────────────────────────
+// Grille compacte avec juste des petits points de couleur (pas de texte dans
+// les cases, illisible en dessous de ~70px de large) + la liste des missions
+// du jour sélectionné juste en dessous, avec le même style de carte que la
+// vue agenda Jour.
+let mobileMonthSelectedDate = null;
+
+function renderMobileMonthView(){
+  var myMissions = getMyMissions();
+  var first = new Date(calYear, calMonth, 1);
+  var startDay = first.getDay() - 1;
+  if(startDay < 0) startDay = 6;
+  var daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  var today = new Date();
+  var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+  var dayNames = ['L','M','M','J','V','S','D'];
+
+  // Jour sélectionné par défaut : aujourd'hui si dans le mois affiché, sinon le 1er
+  if(!mobileMonthSelectedDate || mobileMonthSelectedDate.slice(0,7) !== (calYear+'-'+String(calMonth+1).padStart(2,'0'))){
+    var todayInMonth = today.getMonth()===calMonth && today.getFullYear()===calYear;
+    mobileMonthSelectedDate = todayInMonth ? todayStr : (calYear+'-'+String(calMonth+1).padStart(2,'0')+'-01');
+  }
+
+  var pv = document.getElementById('planning-view');
+  pv.style.cssText = 'overflow-y:auto;height:calc(100vh - 110px);width:100%;background:#fafafa';
+  pv.innerHTML = '';
+
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:.6rem;box-sizing:border-box';
+
+  // ── Grille compacte ──
+  var gridWrap = document.createElement('div');
+  gridWrap.style.cssText = 'background:white;border-radius:14px;border:1px solid var(--border);padding:.6rem;margin-bottom:.75rem';
+
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(7,1fr);gap:2px';
+
+  dayNames.forEach(function(d){
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'text-align:center;font-size:.68rem;font-weight:600;color:var(--grey);padding:.3rem 0';
+    hdr.textContent = d;
+    grid.appendChild(hdr);
+  });
+
+  for(var e=0; e<startDay; e++){
+    var empty = document.createElement('div');
+    grid.appendChild(empty);
+  }
+
+  for(var d=1; d<=daysInMonth; d++){
+    var dateStr = calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    var dayMissions = myMissions.filter(function(m){ return m.date === dateStr && m.statut !== 'annule'; });
+    var isToday = dateStr === todayStr;
+    var isSelected = dateStr === mobileMonthSelectedDate;
+
+    var cell = document.createElement('div');
+    cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;padding:.3rem 0;cursor:pointer;border-radius:10px;background:'+(isSelected?'var(--copper-lt)':'transparent');
+
+    var num = document.createElement('div');
+    num.style.cssText = 'width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:.8rem;font-weight:'+(isToday||isSelected?'700':'400')+';background:'+(isToday?'var(--copper)':'transparent')+';color:'+(isToday?'white':'var(--dark)');
+    num.textContent = d;
+    cell.appendChild(num);
+
+    var dots = document.createElement('div');
+    dots.style.cssText = 'display:flex;gap:2px;height:5px;align-items:center;justify-content:center';
+    dayMissions.slice(0,3).forEach(function(m){
+      var dot = document.createElement('span');
+      dot.style.cssText = 'width:5px;height:5px;border-radius:50%;background:'+missionColor(m)+';display:inline-block';
+      dots.appendChild(dot);
+    });
+    cell.appendChild(dots);
+
+    cell.onclick = (function(ds){ return function(){
+      mobileMonthSelectedDate = ds;
+      renderMobileMonthView();
+    }; })(dateStr);
+
+    grid.appendChild(cell);
+  }
+
+  gridWrap.appendChild(grid);
+  wrap.appendChild(gridWrap);
+
+  // ── Agenda du jour sélectionné (même style que la vue Jour mobile) ──
+  var selDayMissions = myMissions.filter(function(m){ return m.date === mobileMonthSelectedDate; })
+    .sort(function(a,b){ return (a.heure||'').localeCompare(b.heure||''); });
+
+  var selLabel = document.createElement('div');
+  var selDateObj = new Date(mobileMonthSelectedDate+'T00:00');
+  selLabel.style.cssText = 'font-size:.85rem;font-weight:600;color:var(--dark);margin-bottom:.5rem;text-transform:capitalize';
+  selLabel.textContent = selDateObj.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  wrap.appendChild(selLabel);
+
+  if(!selDayMissions.length){
+    var emptyDay = document.createElement('div');
+    emptyDay.style.cssText = 'text-align:center;padding:2rem 1rem;color:#bbb';
+    emptyDay.innerHTML = '<div style="font-size:2rem;margin-bottom:.4rem">📅</div><div style="font-size:.85rem">Aucune mission ce jour</div>';
+    wrap.appendChild(emptyDay);
+  } else {
+    var listBox = document.createElement('div');
+    listBox.style.cssText = 'background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden';
+    selDayMissions.forEach(function(m, idx){
+      // ★ Aperçu minimal — juste l'essentiel pour repérer la mission d'un coup
+      // d'œil ; le détail complet s'ouvre au clic (adresse, monteurs, statut...).
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.7rem .9rem;cursor:pointer'+(idx<selDayMissions.length-1?';border-bottom:1px solid var(--border)':'');
+      row.onclick = function(){ openDetailModal(m.id); };
+      row.innerHTML =
+        '<span style="width:8px;height:8px;border-radius:50%;background:'+(m.color||'#C67C4E')+';flex-shrink:0"></span>' +
+        '<span style="font-size:.78rem;color:var(--grey);flex-shrink:0;min-width:38px">'+ (m.heure||'—') +'</span>' +
+        '<span style="font-size:.9rem;font-weight:600;color:#222;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+ (m.client||'Sans titre') +'</span>' +
+        '<span style="color:var(--grey);font-size:.9rem;flex-shrink:0">›</span>';
+      listBox.appendChild(row);
+    });
+    wrap.appendChild(listBox);
+  }
+
+  if(currentUser.isAdmin){
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-primary';
+    addBtn.style.cssText = 'width:100%;margin-top:.25rem';
+    addBtn.textContent = '+ Ajouter une mission ce jour';
+    addBtn.onclick = function(){ openMissionModalWithDate(mobileMonthSelectedDate, 8, 0); };
+    wrap.appendChild(addBtn);
+  }
+
+  pv.appendChild(wrap);
+}
+
 function renderMonthView(){
   var myMissions = getMyMissions();
   var first = new Date(calYear, calMonth, 1);
