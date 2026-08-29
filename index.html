@@ -173,6 +173,7 @@ textarea.form-input{min-height:80px;resize:vertical}
 /* FILTER */
 .filter-row{display:flex;gap:.5rem;overflow-x:auto;margin-bottom:1rem;padding-bottom:.25rem}
 .filter-btn{background:var(--white);border:1px solid var(--border);border-radius:20px;padding:.3rem .85rem;font-size:.8rem;font-family:inherit;cursor:pointer;white-space:nowrap;color:var(--grey);transition:all .2s}
+.month-cell{min-height:90px}
 .filter-btn.active{background:var(--copper);border-color:var(--copper);color:var(--white)}
 
 /* ── MINI CALENDRIER SIDEBAR ─────────────────────────────────────────────── */
@@ -273,6 +274,23 @@ textarea.form-input{min-height:80px;resize:vertical}
     width:auto !important;
     max-width:none !important;
   }
+  /* ★ Sélecteur de vue (Jour/Semaine/Mois/Année/Liste) : bandeau défilant façon
+     onglets plutôt qu'un retour à la ligne qui grignote la hauteur utile de
+     l'écran. Permet d'accéder facilement à la vue "Mois" (grille façon
+     Google Agenda) en plus de la liste, sans surcharger l'en-tête. */
+  #tab-planning .cal-header-bar{padding:.4rem .6rem}
+  #tab-planning .cal-header-bar > div:last-child{
+    flex-wrap:nowrap !important;
+    overflow-x:auto !important;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:.15rem;
+    width:100%;
+  }
+  #tab-planning .cal-header-bar > div:last-child::-webkit-scrollbar{display:none}
+  #tab-planning .filter-btn{flex-shrink:0}
+  #planning-search{width:90px !important}
+  #planning-search:focus{width:130px !important}
+  .month-cell{min-height:64px}
   .topbar-user{display:none} /* le nom prend trop de place à côté de la cloche sur petit écran */
 }
 @keyframes btn-spin{ to{ transform:rotate(360deg); } }
@@ -2697,7 +2715,8 @@ function renderMonthView(){
 
   for(var e=0; e<startDay; e++){
     var empty = document.createElement('div');
-    empty.style.cssText = 'background:#f9f9f9;min-height:90px';
+    empty.className = 'month-cell';
+    empty.style.cssText = 'background:#f9f9f9';
     grid.appendChild(empty);
   }
 
@@ -2707,7 +2726,8 @@ function renderMonthView(){
     var isToday = today.getDate()===d && today.getMonth()===calMonth && today.getFullYear()===calYear;
 
     var cell = document.createElement('div');
-    cell.style.cssText = 'background:white;min-height:90px;padding:.25rem;cursor:pointer';
+    cell.className = 'month-cell';
+    cell.style.cssText = 'background:white;padding:.25rem;cursor:pointer';
     cell.onclick = (function(ds){ return function(e){
       if(!currentUser || !currentUser.isAdmin) return;
       console.log('[Planning-MONTH] case vide cliquée — date:', ds);
@@ -2740,12 +2760,18 @@ function renderMonthView(){
   var remaining = (7-(total%7))%7;
   for(var r=0; r<remaining; r++){
     var rem = document.createElement('div');
-    rem.style.cssText = 'background:#f9f9f9;min-height:90px';
+    rem.className = 'month-cell';
+    rem.style.cssText = 'background:#f9f9f9';
     grid.appendChild(rem);
   }
   container.appendChild(grid);
 
   var pv = document.getElementById('planning-view');
+  // ★ Comme pour les vues Semaine/Jour : s'assure que le conteneur défile
+  // correctement, quelle que soit la vue précédemment affichée (sans ça, la
+  // grille peut être coupée/inutilisable si elle dépasse la hauteur de l'écran,
+  // notamment sur mobile).
+  pv.style.cssText = 'overflow:auto;height:calc(100vh - 110px);width:100%';
   pv.innerHTML = '';
   pv.appendChild(container);
 }
