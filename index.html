@@ -2934,7 +2934,6 @@ function missionCard(m, compact=false){
       </div>`:''}
       ${!compact&&!currentUser.isAdmin&&m.statut!=='termine'?`<div class="mission-actions" style="flex-direction:column;gap:.4rem">
         <button class="btn btn-primary btn-sm" style="width:100%" onclick="openUploadModal(${m.id})">📎 Ajouter photos / documents</button>
-        ${isLeroyMerlinMission(m)?`<button class="btn btn-ghost btn-sm" style="width:100%;background:#E8F5E9;color:#007A33;border-color:#007A33" onclick="openLMModal(${m.id})">📋 Bon de réception Leroy Merlin</button>`:''}
         <button class="btn btn-ghost btn-sm" style="width:100%;background:#EAF7EF;color:#1E8449;border-color:#1E8449" onclick="completeMission(${m.id})">✅ Terminer l'intervention</button>
       </div>`:''}
       ${m.signature?`<div style="margin-top:.5rem;padding:.4rem .6rem;background:#EAF7EF;border-radius:6px;font-size:.78rem;color:#1E8449">✅ Signé le ${m.signature.date}</div>`:''}
@@ -4230,18 +4229,20 @@ function openDetailModal(id){
     (m.lmBon ? '<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" style="width:100%;background:#E8F5E9;border-color:#007A33;color:#007A33" onclick="downloadExistingLMBon(' + id + ')">📋 Télécharger le bon Leroy Merlin</button></div>' : '') : '';
 
   // Bouton Leroy Merlin — visible pour les monteurs si mission LM
-  const lmBtn = !currentUser.isAdmin && isLeroyMerlinMission(m)
-    ? '<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" style="width:100%;background:#E8F5E9;color:#007A33;border-color:#007A33" onclick="closeDetailModal();openLMModal(' + id + ')">📋 Bon de réception Leroy Merlin</button></div>'
-    : '';
-
+  // ★ Un seul bouton pour terminer une mission, y compris Leroy Merlin — plus de
+  // bouton "Bon de réception" séparé qui créait un doublon et pouvait laisser la
+  // mission en statut "non terminée" même après avoir rempli le bon (le bon
+  // était bien enregistré, mais le statut ne changeait jamais côté admin).
+  // "Terminer" route déjà automatiquement vers le Bon LM pour ces missions
+  // (voir completeMission()) et force le passage au statut "Terminée".
   const empActions = !currentUser.isAdmin && m.statut !== 'termine' ?
     '<div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">' +
       '<button class="btn btn-primary" style="flex:1" onclick="closeDetailModal();openUploadModal(' + id + ')">📎 Envoyer fichier(s)</button>' +
       '<button class="btn btn-ghost" style="background:#EAF7EF;color:#1E8449;border-color:#1E8449;flex:1" onclick="closeDetailModal();completeMission(' + id + ')">✅ Terminer</button>' +
-    '</div>' + lmBtn :
+    '</div>' :
     (m.signature ?
-      '<div style="margin-top:.75rem;padding:.6rem .75rem;background:#EAF7EF;border-radius:8px;font-size:.82rem;color:#1E8449">✅ Signé le ' + m.signature.date + ' à ' + m.signature.heure + '</div>' + lmBtn :
-      lmBtn);
+      '<div style="margin-top:.75rem;padding:.6rem .75rem;background:#EAF7EF;border-radius:8px;font-size:.82rem;color:#1E8449">✅ Signé le ' + m.signature.date + ' à ' + m.signature.heure + '</div>' :
+      '');
 
   document.getElementById('detail-content').innerHTML =
     '<div style="display:flex;flex-direction:column;gap:.4rem">' +
