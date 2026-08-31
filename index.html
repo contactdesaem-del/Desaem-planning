@@ -940,18 +940,66 @@ function generateMissionId(){
 
 const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzWQ4H10OUPPBKf6IVYnANj8uqDjo9epO7gperAEdbD-_6q-flYNWi9Iq9U9mRfCi_DfQ/exec';
 
-async function saveMissionsToSheets() {
+// ★ touchedMissionIds (optionnel) : liste des IDs de missions réellement
+// modifiées par CET appel. Si fourni, la fonction recharge d'abord la version
+// la plus fraîche du serveur et n'y fusionne QUE ces missions précises —
+// les autres restent telles que le serveur les a (changements faits ailleurs
+// entre-temps préservés). Sans cet argument, comportement classique (envoie
+// tout le tableau local tel quel) — utilisé pour les sauvegardes qui touchent
+// légitimement plusieurs missions à la fois (ex: import global).
+async function saveMissionsToSheets(touchedMissionIds) {
   try {
+    let missionsToSend = missions;
+
+    if (Array.isArray(touchedMissionIds) && touchedMissionIds.length) {
+      try {
+        const freshRes = await fetch(SHEETS_URL + '?t=' + Date.now());
+        const freshText = await freshRes.text();
+        const freshData = JSON.parse(freshText);
+        const freshMissions = Array.isArray(freshData) ? freshData
+          : (freshData && Array.isArray(freshData.missions) ? freshData.missions : null);
+
+        if (freshMissions) {
+          const touchedSet = new Set(touchedMissionIds.map(String));
+          const localById = {};
+          missions.forEach(function(m){ localById[String(m.id)] = m; });
+
+          // Base = version fraîche du serveur, sauf les missions touchées par
+          // CET appel qui prennent la version locale (celle qu'on vient de modifier)
+          const merged = freshMissions.map(function(fm){
+            return touchedSet.has(String(fm.id)) ? (localById[String(fm.id)] || fm) : fm;
+          });
+          // Missions touchées localement mais absentes du serveur (nouvelles créations)
+          touchedSet.forEach(function(tid){
+            if (!merged.some(function(m){ return String(m.id) === tid; }) && localById[tid]) {
+              merged.push(localById[tid]);
+            }
+          });
+          // Missions supprimées localement (présentes côté frais mais plus en local) —
+          // on respecte la suppression si elle fait partie de ce qu'on vient de faire
+          const localIds = new Set(missions.map(function(m){ return String(m.id); }));
+          const finalMerged = merged.filter(function(fm){
+            return localIds.has(String(fm.id)) || !touchedSet.has(String(fm.id));
+          });
+
+          missionsToSend = finalMerged;
+          missions = finalMerged; // garder la copie locale synchronisée avec le serveur
+        }
+      } catch(mergeErr) {
+        console.warn('[Sheets] Fusion anti-écrasement impossible, sauvegarde classique en repli:', mergeErr);
+      }
+    }
+
     // ★ text/plain évite le preflight CORS tout en envoyant le JSON correctement
     // (no-cors empêche le body d'être lu par Apps Script)
-    const payload = JSON.stringify({action: 'save_missions', missions, clients, employees});
+    const payload = JSON.stringify({action: 'save_missions', missions: missionsToSend, clients, employees});
     await fetch(SHEETS_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain'},
       body: payload
     });
     lastDataHash = JSON.stringify(missions);
-    console.log('[Sheets] Missions + clients + employees sauvegardés ✅');
+    console.log('[Sheets] Missions + clients + employees sauvegardés ✅' + (touchedMissionIds ? ' (fusion ciblée: ' + touchedMissionIds.join(',') + ')' : ''));
     return true;
   } catch(e) {
     console.log('[Sheets] Erreur sauvegarde:', e.message);
@@ -2249,7 +2297,7 @@ function renderWeekView(){
             if(mObj){
               mObj.heure = String(newH).padStart(2,'0')+':'+String(newM).padStart(2,'0');
               mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
-              saveMissionsToSheets();
+              saveMissionsToSheets([mObj.id]);
               renderCalendar();
               showToast('⏰ ' + mObj.heure + ' – ' + mObj.heureFin);
             }
@@ -2349,7 +2397,7 @@ function renderWeekView(){
             var mObj = missions.find(function(mx){ return mx.id === parseInt(mDiv.dataset.missionId); });
             if(mObj){
               mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
-              saveMissionsToSheets();
+              saveMissionsToSheets([mObj.id]);
               renderCalendar();
               showToast('⏰ Fin à ' + mObj.heureFin);
             }
@@ -2571,7 +2619,7 @@ function renderDayView(){
           if(mObj){
             mObj.heure = String(nH).padStart(2,'0')+':'+String(nM).padStart(2,'0');
             mObj.heureFin = String(nEH).padStart(2,'0')+':'+String(nEM).padStart(2,'0');
-            saveMissionsToSheets();
+            saveMissionsToSheets([mObj.id]);
             renderCalendar();
             showToast('⏰ '+mObj.heure+' – '+mObj.heureFin);
           }
@@ -2657,7 +2705,7 @@ function renderDayView(){
           var mObj = missions.find(function(mx){ return mx.id === parseInt(mDiv.dataset.missionId); });
           if(mObj){
             mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
-            saveMissionsToSheets();
+            saveMissionsToSheets([mObj.id]);
             renderCalendar();
             showToast('⏰ Fin à ' + mObj.heureFin);
           }
@@ -3411,7 +3459,7 @@ async function saveMission(btn){
 
   setBtnLoading(btn, true, 'Enregistrement…');
   try {
-    await saveMissionsToSheets();
+    await saveMissionsToSheets([finalMission.id]);
   } finally {
     setBtnLoading(btn, false);
   }
@@ -3425,14 +3473,14 @@ function deleteMission(id){
   const deletedIndex = missions.findIndex(m=>m.id===id);
   const deletedMission = deletedIndex>=0 ? missions[deletedIndex] : null;
   missions=missions.filter(m=>m.id!==id);
-  saveMissionsToSheets();
+  saveMissionsToSheets([id]);
   renderAll();
   showUndoToast('Mission supprimée', function(){
     if(!deletedMission) return;
     // Réinsère la mission à sa position d'origine (ou à la fin si indisponible)
     if(deletedIndex>=0 && deletedIndex<=missions.length) missions.splice(deletedIndex, 0, deletedMission);
     else missions.push(deletedMission);
-    saveMissionsToSheets();
+    saveMissionsToSheets([deletedMission.id]);
     renderAll({missionDate: deletedMission.date});
     showToast('↩️ Mission restaurée');
   }, 6000);
@@ -4089,7 +4137,7 @@ async function saveComment(btn){
   });
   setBtnLoading(btn, true, 'Envoi…');
   try {
-    await saveMissionsToSheets();
+    await saveMissionsToSheets([m.id]);
   } finally {
     setBtnLoading(btn, false);
   }
@@ -4238,7 +4286,7 @@ async function uploadFiles(btn){
 
   if(success > 0){
     progress.textContent = '💾 Sauvegarde sur le serveur...';
-    await saveMissionsToSheets();
+    await saveMissionsToSheets([mission.id]);
     // Force all clients to refresh (reset hash)
     lastDataHash = '';
     progress.style.display = 'none';
@@ -4559,7 +4607,7 @@ async function changeStatus(id, newStatus){
     addMissionHistory(m, 'Statut : ' + (STATUT_LABELS_HISTORY[oldStatut]||oldStatut) + ' → ' + (STATUT_LABELS_HISTORY[newStatus]||newStatus));
     if(newStatus === 'termine') notifyClientByEmail(m, 'termine');
   }
-  await saveMissionsToSheets();
+  await saveMissionsToSheets([id]);
   renderAll();
   showToast('✅ Statut mis à jour !');
 }
@@ -4609,7 +4657,7 @@ async function deleteComment(missionId, commentIdx){
   var m = missions.find(function(mx){ return mx.id === missionId; });
   if(!m || !m.comments) return;
   m.comments.splice(commentIdx, 1);
-  await saveMissionsToSheets();
+  await saveMissionsToSheets([missionId]);
   closeDetailModal();
   openDetailModal(missionId);
   showToast('Commentaire supprimé');
@@ -4620,7 +4668,7 @@ async function deleteAttachment(missionId, attachIdx){
   var m = missions.find(function(mx){ return mx.id === missionId; });
   if(!m || !m.attachments) return;
   m.attachments.splice(attachIdx, 1);
-  await saveMissionsToSheets();
+  await saveMissionsToSheets([missionId]);
   closeDetailModal();
   openDetailModal(missionId);
   showToast('Fichier supprimé');
@@ -4824,7 +4872,7 @@ async function saveSignature(btn){
 
   setBtnLoading(btn, true, 'Enregistrement…');
   try {
-    await saveMissionsToSheets();
+    await saveMissionsToSheets([m.id]);
   } finally {
     setBtnLoading(btn, false);
   }
@@ -5561,7 +5609,7 @@ async function saveLMBon(btn){
         addMissionHistory(m, 'Statut : → Terminée (Bon Leroy Merlin)');
         notifyClientByEmail(m, 'termine');
       }
-      await saveMissionsToSheets();
+      await saveMissionsToSheets([m.id]);
       lastDataHash = '';
       renderAll();
     }
