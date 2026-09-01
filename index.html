@@ -588,7 +588,14 @@ textarea.form-input{min-height:80px;resize:vertical}
       <div style="display:flex;align-items:flex-start;gap:.6rem;margin-bottom:.5rem">
         <span style="font-size:1.2rem;margin-top:.3rem">📎</span>
         <div style="flex:1">
-          <input class="form-input" type="file" id="m-fichier" accept=".pdf,.jpg,.png,.jpeg" multiple onchange="previewFiles(this)">
+          <div id="m-fichier-dropzone" style="border:2px dashed var(--border);border-radius:10px;padding:.75rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s"
+            onclick="document.getElementById('m-fichier').click()"
+            ondragover="event.preventDefault();event.stopPropagation();this.style.borderColor='var(--copper)';this.style.background='var(--copper-lt)'"
+            ondragleave="event.preventDefault();event.stopPropagation();this.style.borderColor='var(--border)';this.style.background='transparent'"
+            ondrop="handleFileDrop(event,this)">
+            <div style="font-size:.82rem;color:var(--grey)">📎 Glissez un fichier ici, ou cliquez pour choisir</div>
+          </div>
+          <input class="form-input" type="file" id="m-fichier" accept=".pdf,.jpg,.png,.jpeg" multiple onchange="previewFiles(this)" style="display:none">
           <div id="m-fichier-preview" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem"></div>
         </div>
       </div>
@@ -3270,6 +3277,12 @@ function closeMissionModal(){
   // Reset date border
   var dateEl = document.getElementById('m-date');
   if(dateEl) dateEl.style.border = '';
+  // ★ Réinitialise le champ fichier — évite qu'un fichier choisi mais non
+  // enregistré ne réapparaisse à la prochaine ouverture de la fiche
+  var fichierInput = document.getElementById('m-fichier');
+  if(fichierInput) fichierInput.value = '';
+  var fichierPreview = document.getElementById('m-fichier-preview');
+  if(fichierPreview) fichierPreview.innerHTML = '';
 }
 
 function shakeMissionModal(event){
@@ -4193,6 +4206,31 @@ function previewFiles(input){
     span.textContent = '📄 ' + f.name;
     preview.appendChild(span);
   });
+}
+
+// ★ Glisser-déposer sur la zone de pièce jointe. On ne compte pas sur le
+// comportement natif du navigateur (peu fiable selon navigateur/mobile) : on
+// intercepte le drop, on assigne nous-mêmes les fichiers au <input type="file">
+// caché via un DataTransfer, puis on réutilise previewFiles() normalement —
+// ainsi la suite (upload à l'enregistrement) fonctionne exactement pareil
+// qu'un fichier choisi en cliquant.
+function handleFileDrop(e, zoneEl){
+  e.preventDefault();
+  e.stopPropagation();
+  zoneEl.style.borderColor = 'var(--border)';
+  zoneEl.style.background = 'transparent';
+
+  const droppedFiles = e.dataTransfer && e.dataTransfer.files;
+  if(!droppedFiles || !droppedFiles.length) return;
+
+  const input = document.getElementById('m-fichier');
+  const dt = new DataTransfer();
+  // Conserve les fichiers déjà sélectionnés (clic) en plus de ceux déposés
+  [...input.files].forEach(f => dt.items.add(f));
+  [...droppedFiles].forEach(f => dt.items.add(f));
+  input.files = dt.files;
+
+  previewFiles(input);
 }
 
 const IMGBB_KEY = '2742fcdf6c38011943a7a7a3d8138cf2';
