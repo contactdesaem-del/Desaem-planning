@@ -799,6 +799,24 @@ textarea.form-input{min-height:80px;resize:vertical}
         <option value="false">Désactivé</option>
       </select>
     </div>
+    <div class="form-group">
+      <label class="form-label">Couleur des missions de ce client</label>
+      <div style="font-size:.75rem;color:var(--grey);margin-bottom:.4rem">Si définie, elle sera appliquée automatiquement à chaque nouvelle mission de ce client — sinon la couleur reste à choisir manuellement, comme avant.</div>
+      <div id="c-color-picker" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <div onclick="selectClientColor(this,'')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;cursor:pointer;border:3px solid transparent;background:repeating-conic-gradient(#ddd 0% 25%,#fff 0% 50%) 50%/8px 8px;display:flex;align-items:center;justify-content:center" title="Aucune (choix manuel à chaque mission)"></div>
+        <div onclick="selectClientColor(this,'#E74C3C')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#E74C3C;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#C67C4E')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#C67C4E;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#F39C12')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#F39C12;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#27AE60')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#27AE60;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#16A085')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#16A085;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#3498DB')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#3498DB;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#3F51B5')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#3F51B5;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#8E44AD')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#8E44AD;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#FF4081')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#FF4081;cursor:pointer;border:3px solid transparent"></div>
+        <div onclick="selectClientColor(this,'#7F8C8D')" class="c-color-swatch" style="width:26px;height:26px;border-radius:50%;background:#7F8C8D;cursor:pointer;border:3px solid transparent"></div>
+        <input type="hidden" id="c-color" value="">
+      </div>
+    </div>
     <div class="form-actions">
       <button class="btn btn-primary" style="flex:1" onclick="saveClient(this)">✅ Enregistrer</button>
       <button class="btn btn-ghost" onclick="closeClientModal()">Annuler</button>
@@ -1374,7 +1392,6 @@ function buildNav(){
     tabs = [
       {id:'dashboard',label:'📊 Dashboard'},
       {id:'planning',label:'📅 Planning'},
-      {id:'recherche',label:'🔍 Recherche'},
       {id:'employes',label:'👷 Équipe'},
       {id:'clients',label:'🏢 Clients'}
     ];
@@ -1383,8 +1400,7 @@ function buildNav(){
   } else {
     tabs = [
       {id:'dashboard',label:'📊 Résumé'},
-      {id:'planning',label:'📅 Mes missions'},
-      {id:'recherche',label:'🔍 Recherche'}
+      {id:'planning',label:'📅 Mes missions'}
     ];
   }
   const defaultTab = tabs[0].id;
@@ -3819,7 +3835,7 @@ function doQuickSearch(query){
   var myMissions = getMyMissions();
   var results = myMissions.filter(function(m){
     return [m.client||'',m.adresse||'',m.tel||'',m.desc||'',m.factureNum||'',m.date||''].join(' ').toLowerCase().indexOf(query) > -1;
-  }).slice(0,8);
+  }).slice(0,20);
 
   el.innerHTML = '';
 
@@ -3981,6 +3997,12 @@ function selectColor(el, color){
   document.querySelectorAll('#m-color-picker div').forEach(d=>d.style.border='3px solid transparent');
   el.style.border='3px solid #333';
   document.getElementById('m-color').value=color;
+}
+
+function selectClientColor(el, color){
+  document.querySelectorAll('#c-color-picker .c-color-swatch').forEach(d=>d.style.border='3px solid transparent');
+  el.style.border='3px solid #333';
+  document.getElementById('c-color').value=color;
 }
 
 // ══ SÉLECTEURS HEURE / MINUTES (défilement heure par heure / 15min) ═══════════
@@ -4949,6 +4971,12 @@ function openClientModal(id=null){
   document.getElementById('c-pass').value = '';
   document.getElementById('c-pass-hint').textContent = c ? 'Laissez vide pour conserver le mot de passe actuel' : '';
   document.getElementById('c-actif').value = c ? String(c.actif!==false) : 'true';
+  // Pré-remplir la couleur (met en surbrillance le bon rond, ou aucun si "automatique/manuel")
+  const clientColor = c ? (c.color || '') : '';
+  document.getElementById('c-color').value = clientColor;
+  document.querySelectorAll('#c-color-picker .c-color-swatch').forEach(function(sw){
+    sw.style.border = (sw.getAttribute('onclick')||'').includes("'"+clientColor+"'") ? '3px solid #333' : '3px solid transparent';
+  });
   document.getElementById('client-modal').style.display = 'flex';
 }
 
@@ -4980,6 +5008,7 @@ async function saveClient(btn){
   const contact = document.getElementById('c-contact').value.trim();
   const email = document.getElementById('c-email').value.trim();
   const actif = document.getElementById('c-actif').value === 'true';
+  const color = document.getElementById('c-color').value || '';
 
   if(!nom || !login){ showToast('⚠️ Société et identifiant obligatoires'); return; }
   if(login.length < 3){ showToast('⚠️ Identifiant trop court (3 caractères min)'); return; }
@@ -4991,7 +5020,7 @@ async function saveClient(btn){
       // Modification d'un client existant
       const c = clients.find(c=>c.id===editingClientId);
       if(!c){ showToast('❌ Client introuvable'); return; }
-      c.nom = nom; c.contact = contact; c.email = email; c.actif = actif; c.login = login;
+      c.nom = nom; c.contact = contact; c.email = email; c.actif = actif; c.login = login; c.color = color;
       if(pass) c.pass = pass;
       // Mettre à jour USERS pour que le nouveau mot de passe soit actif immédiatement
       const u = USERS.find(u=>u.id===c.id);
@@ -5011,7 +5040,7 @@ async function saveClient(btn){
       }
       const newClient = {
         id: nextClientId++,
-        nom, login, pass, contact, email, actif,
+        nom, login, pass, contact, email, actif, color,
         createdAt: new Date().toLocaleDateString('fr-FR'),
         lastLogin: null
       };
@@ -5497,16 +5526,28 @@ function autoDetectLM(){
   if(!sel || !hiddenInput) return;
   const selectedId = parseInt(sel.value);
   let isLM = false;
+  let clientColor = '';
   if(selectedId){
     const c = clients.find(c=>parseInt(c.id)===selectedId);
     if(c){
       const nom = (c.nom||'').toLowerCase().replace(/\s/g,'');
       isLM = nom.includes('leroymerlin') || nom.includes('leroy');
+      clientColor = c.color || '';
     }
   }
   hiddenInput.value = isLM ? 'true' : '';
   if(indicator) indicator.style.display = isLM ? 'flex' : 'none';
   console.log('[LM] Client sélectionné détecté comme Leroy Merlin:', isLM);
+
+  // ★ Couleur automatique : si ce client a une couleur définie, on l'applique
+  // directement (comme si l'admin l'avait choisie) — sinon on laisse le choix
+  // manuel intact, sans rien changer à ce que l'admin a déjà sélectionné.
+  if(clientColor){
+    document.getElementById('m-color').value = clientColor;
+    document.querySelectorAll('#m-color-picker div').forEach(function(d){
+      d.style.border = (d.getAttribute('onclick')||'').includes("'"+clientColor+"'") ? '3px solid #333' : '3px solid transparent';
+    });
+  }
 }
 
 let lmTerminerMode = false;
