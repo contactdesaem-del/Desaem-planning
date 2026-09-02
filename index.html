@@ -4259,9 +4259,13 @@ async function uploadAttachmentFile(file, missionId){
   }
 
   // PDF / autre document -> Drive via le script Google
+  // ★ text/plain évite le preflight CORS (OPTIONS) que Google Apps Script ne
+  // gère pas — même mécanisme que tous les autres appels au script (voir
+  // saveMissionsToSheets, uploadSignatureImage, etc.). Avec 'application/json',
+  // le navigateur bloque la requête avant même qu'elle ne parte : "Failed to fetch".
   const res = await fetch(SHEETS_URL, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: {'Content-Type': 'text/plain'},
     body: JSON.stringify({
       action: 'upload_file',
       fileName: file.name,
