@@ -3165,7 +3165,7 @@ function missionCard(m, compact=false){
         <button class="btn btn-primary btn-sm" style="width:100%" onclick="openUploadModal(${m.id})">📎 Ajouter photos / documents</button>
         <button class="btn btn-ghost btn-sm" style="width:100%;background:#EAF7EF;color:#1E8449;border-color:#1E8449" onclick="completeMission(${m.id})">✅ Terminer l'intervention</button>
       </div>`:''}
-      ${m.signature?`<div style="margin-top:.5rem;padding:.4rem .6rem;background:#EAF7EF;border-radius:6px;font-size:.78rem;color:#1E8449">✅ Signé le ${m.signature.date}</div>`:''}
+      ${m.signature?`<div style="margin-top:.5rem;padding:.4rem .6rem;background:#EAF7EF;border-radius:6px;font-size:.78rem;color:#1E8449">✅ Signé le ${m.signature.date}${m.signature.signedBy?` par ${m.signature.signedBy}`:''}</div>`:''}
       ${m.attachments&&m.attachments.length?`<div style="margin-top:.6rem">
         <div style="font-size:.78rem;font-weight:600;color:var(--grey);margin-bottom:.3rem">📎 ${m.attachments.length} fichier(s) joint(s)</div>
         ${m.attachments.map(a=>{
@@ -4511,7 +4511,7 @@ function openDetailModal(id){
       '<button class="btn btn-ghost" style="background:#EAF7EF;color:#1E8449;border-color:#1E8449;flex:1" onclick="closeDetailModal();completeMission(' + id + ')">✅ Terminer</button>' +
     '</div>' :
     (m.signature ?
-      '<div style="margin-top:.75rem;padding:.6rem .75rem;background:#EAF7EF;border-radius:8px;font-size:.82rem;color:#1E8449">✅ Signé le ' + m.signature.date + ' à ' + m.signature.heure + '</div>' :
+      '<div style="margin-top:.75rem;padding:.6rem .75rem;background:#EAF7EF;border-radius:8px;font-size:.82rem;color:#1E8449">✅ Signé le ' + m.signature.date + ' à ' + m.signature.heure + (m.signature.signedBy ? ' par ' + m.signature.signedBy : '') + '</div>' :
       '');
 
   document.getElementById('detail-content').innerHTML =
@@ -5681,7 +5681,7 @@ async function saveLMBon(btn){
       ]);
       setBtnLoading(btn, true, 'Enregistrement…');
       m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
-      m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient};
+      m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient, signedBy:currentUser.nom};
       m.conforme = sansReserve;
       // ★ Marquer terminée si mode terminer
       if(lmTerminerMode){
