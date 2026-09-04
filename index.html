@@ -4428,11 +4428,48 @@ function openDetailModal(id){
   let attachHtml = '';
   var currentMissionId = id;
   if(m.attachments && m.attachments.length > 0){
-    attachHtml = '<div style="margin-top:1rem"><p style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;color:var(--dark)">📎 Fichiers joints (' + m.attachments.length + ')</p><div class="attach-list" style="display:flex;flex-direction:column;gap:.3rem">' +
-      m.attachments.map(function(a, attachIdx){
-        const isImg = (a.type && a.type.startsWith('image/')) || a.url.indexOf('ibb.co') > -1 || /\.(jpg|jpeg|png|gif|webp)$/i.test(a.name);
+    const attachImages = m.attachments.map(function(a, i){ return {a, i}; }).filter(function(o){
+      const a = o.a;
+      return (a.type && a.type.startsWith('image/')) || (a.url && a.url.indexOf('ibb.co') > -1) || /\.(jpg|jpeg|png|gif|webp)$/i.test(a.name||'');
+    });
+    const attachDocs = m.attachments.map(function(a, i){ return {a, i}; }).filter(function(o){
+      const a = o.a;
+      return !((a.type && a.type.startsWith('image/')) || (a.url && a.url.indexOf('ibb.co') > -1) || /\.(jpg|jpeg|png|gif|webp)$/i.test(a.name||''));
+    });
+
+    // ★ Photos affichées en vraies vignettes <img> (comme côté client) — permet
+    // le clic droit "Enregistrer/Copier l'image" et le glisser-déposer natif du
+    // navigateur, ce qu'une simple ligne de texte avec un lien ne permet pas.
+    let imagesHtml = '';
+    if(attachImages.length){
+      imagesHtml = '<div style="margin-top:1rem"><p style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;color:var(--dark)">🖼️ Photos (' + attachImages.length + ')</p>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:.5rem;margin-bottom:.5rem">' +
+        attachImages.map(function(o){
+          const a = o.a, imgIdx = o.i;
+          const safeName = (a.name||'photo').replace(/'/g,"\\'");
+          return '<div style="position:relative">' +
+            '<img src="' + a.url + '" loading="lazy" onclick="openLightbox(\'' + a.url + '\',\'' + safeName + '\')" ' +
+              'style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid var(--border)">' +
+            '<a href="' + a.url + '" download="' + (a.name||'photo') + '" target="_blank" title="Télécharger" ' +
+              'style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.55);color:white;border-radius:6px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:.75rem;text-decoration:none">⬇️</a>' +
+            (currentUser && currentUser.isAdmin ?
+              '<button onclick="deleteAttachment(' + id + ',' + imgIdx + ')" title="Supprimer" ' +
+                'style="position:absolute;top:4px;right:4px;background:rgba(192,57,43,.85);color:white;border:none;border-radius:6px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:.75rem;cursor:pointer">🗑️</button>'
+              : '') +
+          '</div>';
+        }).join('') +
+        '</div>' +
+        '<button class="btn btn-ghost btn-sm" style="width:100%;font-size:.78rem" onclick="downloadAllAttachments(' + id + ',\'images\')">⬇️ Télécharger toutes les photos</button>' +
+      '</div>';
+    }
+
+    let docsHtml = '';
+    if(attachDocs.length){
+    docsHtml = '<div style="margin-top:1rem"><p style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;color:var(--dark)">📎 Documents (' + attachDocs.length + ')</p><div class="attach-list" style="display:flex;flex-direction:column;gap:.3rem">' +
+      attachDocs.map(function(o){
+        const a = o.a, attachIdx = o.i;
         const isPdf = /\.pdf$/i.test(a.name);
-        const icon = isImg ? '🖼️' : isPdf ? '📄' : '📁';
+        const icon = isPdf ? '📄' : '📁';
         var attachUrl = a.url;
         var attachName = a.name;
         var attachBy = a.by || '';
@@ -4475,6 +4512,9 @@ function openDetailModal(id){
         return div.outerHTML;
       }).join('') +
     '</div></div>';
+    }
+
+    attachHtml = imagesHtml + docsHtml;
   } else {
     attachHtml = '<div style="margin-top:1rem;padding:.75rem;background:var(--light);border-radius:8px;text-align:center;color:var(--grey);font-size:.85rem">Aucun fichier joint</div>';
   }
@@ -4603,8 +4643,9 @@ function openDetailModal(id){
       attachContainer.innerHTML = '';
       m.attachments.forEach(function(a, aIdx){
         var isImg = (a.type && a.type.startsWith('image/')) || (a.url && a.url.indexOf('ibb.co') > -1) || /\.(jpg|jpeg|png|gif|webp)$/i.test(a.name||'');
+        if(isImg) return; // ★ Les images ont leur propre galerie en vignettes juste au-dessus, pas de doublon ici
         var isPdf = /\.pdf$/i.test(a.name||'');
-        var icon = isImg ? '🖼️' : isPdf ? '📄' : '📁';
+        var icon = isPdf ? '📄' : '📁';
 
         var row = document.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;gap:.5rem;background:var(--light);border:1px solid var(--border);border-radius:8px;padding:.5rem .6rem;margin-bottom:.3rem';
