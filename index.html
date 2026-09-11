@@ -664,6 +664,37 @@ textarea.form-input{min-height:80px;resize:vertical}
   </div>
 </div>
 
+<!-- ══ MODAL CONGÉS / ABSENCES ══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="absence-modal" style="display:none" onclick="if(event.target===this)closeAbsenceModal()">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="absence-modal-title">Congés / absences</span>
+      <button class="modal-close" onclick="closeAbsenceModal()">×</button>
+    </div>
+    <input type="hidden" id="absence-emp-id">
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+      <div class="form-group">
+        <label class="form-label">Du</label>
+        <input class="form-input" type="date" id="absence-start">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Au</label>
+        <input class="form-input" type="date" id="absence-end">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Motif (optionnel)</label>
+      <input class="form-input" id="absence-reason" placeholder="Congés, arrêt maladie, formation...">
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:1rem" onclick="addAbsence()">+ Ajouter cette période</button>
+    <div style="font-size:.8rem;font-weight:600;color:var(--grey);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.05em">Périodes enregistrées</div>
+    <div id="absence-list" style="max-height:200px;overflow-y:auto"></div>
+    <div class="form-actions" style="margin-top:1rem">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeAbsenceModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ MODAL CHANGER MOT DE PASSE ══════════════════════════════════════════════ -->
 <div class="modal-overlay" id="changepass-modal" style="display:none" onclick="if(event.target===this)closeChangePassModal()">
   <div class="modal">
@@ -3225,9 +3256,10 @@ function openMissionModal(m=null){
   const activeMonteurs = employees.filter(e=>e.actif!==false);
   console.log('[Modal] Monteurs disponibles:', activeMonteurs.length, activeMonteurs.map(e=>e.nom+'(id:'+e.id+')').join(', '));
   listEl.innerHTML=activeMonteurs.map(e=>`
-    <label class="check-item">
+    <label class="check-item" id="m-monteur-label-${e.id}">
       <input type="checkbox" value="${e.id}" ${m&&m.monteurs&&m.monteurs.some(mid=>parseInt(mid)===parseInt(e.id))?'checked':''}>
       ${e.nom} <span style="color:var(--grey);font-size:.8rem">(${e.role})</span>
+      <span class="m-monteur-absence-tag" style="display:none;color:#B7791F;font-size:.75rem;font-weight:600;margin-left:.3rem">🌴 Absent</span>
     </label>`).join('');
   // Vérification des conflits en direct — au changement des monteurs, de la date ou des heures
   listEl.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.addEventListener('change', checkMonteurConflictsLive));
@@ -3235,8 +3267,25 @@ function openMissionModal(m=null){
     const fld = document.getElementById(id);
     if(fld) fld.addEventListener('change', checkMonteurConflictsLive);
   });
+  const dateFieldForAbsence = document.getElementById('m-date');
+  if(dateFieldForAbsence) dateFieldForAbsence.addEventListener('change', refreshAbsenceTagsInMissionForm);
+  refreshAbsenceTagsInMissionForm();
   checkMonteurConflictsLive();
   document.getElementById('mission-modal').style.display='flex';
+}
+
+// Affiche/masque la pastille "🌴 Absent" sur chaque monteur selon la date choisie
+function refreshAbsenceTagsInMissionForm(){
+  const date = document.getElementById('m-date').value;
+  if(!date) return;
+  employees.filter(e=>e.actif!==false).forEach(e=>{
+    const label = document.getElementById('m-monteur-label-'+e.id);
+    if(!label) return;
+    const tag = label.querySelector('.m-monteur-absence-tag');
+    const absence = isEmployeeAbsentOnDate(e, date);
+    if(tag) tag.style.display = absence ? 'inline' : 'none';
+    label.title = absence && absence.reason ? absence.reason : '';
+  });
 }
 
 // Affiche un bandeau d'alerte dans la fiche si un monteur coché est déjà occupé
@@ -3428,6 +3477,23 @@ async function saveMission(btn){
     }
   }
 
+  // ── Vérification des congés/absences (monteur sélectionné mais indisponible) ──
+  const absentMonteurs = mission.monteurs
+    .map(function(mid){ return employees.find(function(e){ return parseInt(e.id)===parseInt(mid); }); })
+    .filter(Boolean)
+    .map(function(e){ return {emp: e, absence: isEmployeeAbsentOnDate(e, mission.date)}; })
+    .filter(function(o){ return o.absence; });
+  if(absentMonteurs.length){
+    const absMsgs = absentMonteurs.map(function(o){
+      return o.emp.nom + ' est en congé du ' + o.absence.start + ' au ' + o.absence.end + (o.absence.reason ? ' (' + o.absence.reason + ')' : '');
+    });
+    const proceedAbsence = confirm('🌴 Monteur(s) en congé à cette date :\n\n' + absMsgs.join('\n') + '\n\nEnregistrer quand même ?');
+    if(!proceedAbsence){
+      showToast('❌ Enregistrement annulé — vérifie les disponibilités');
+      return;
+    }
+  }
+
   if(editingMissionId){
     const idx=missions.findIndex(m=>m.id===editingMissionId);
     const oldSnapshot = {...missions[idx]};
@@ -3565,6 +3631,86 @@ async function saveEmployeesToSheets(){
   } catch(e) { console.log('[Sheets] Erreur save employees:', e.message); }
 }
 
+// ══ CONGÉS / ABSENCES DES MONTEURS ═══════════════════════════════════════════
+// Chaque employé garde une liste de périodes {start, end, reason}. Utilisé
+// pour empêcher (avec avertissement, pas un blocage strict) de sélectionner
+// un monteur absent lors de la création/édition d'une mission.
+function isEmployeeAbsentOnDate(emp, dateStr){
+  if(!emp || !emp.absences || !dateStr) return null;
+  return emp.absences.find(function(ab){ return dateStr >= ab.start && dateStr <= ab.end; }) || null;
+}
+
+let absenceEmpId = null;
+
+function openAbsenceModal(empId){
+  absenceEmpId = empId;
+  const emp = employees.find(e=>e.id===empId);
+  if(!emp) return;
+  document.getElementById('absence-modal-title').textContent = '🌴 Congés — ' + emp.nom;
+  document.getElementById('absence-emp-id').value = empId;
+  document.getElementById('absence-start').value = '';
+  document.getElementById('absence-end').value = '';
+  document.getElementById('absence-reason').value = '';
+  renderAbsenceList();
+  document.getElementById('absence-modal').style.display = 'flex';
+}
+
+function closeAbsenceModal(){
+  document.getElementById('absence-modal').style.display = 'none';
+  absenceEmpId = null;
+}
+
+function renderAbsenceList(){
+  const emp = employees.find(e=>e.id===absenceEmpId);
+  const el = document.getElementById('absence-list');
+  if(!emp || !el) return;
+  const absences = emp.absences || [];
+  if(!absences.length){
+    el.innerHTML = '<div style="text-align:center;color:var(--grey);font-size:.82rem;padding:.75rem">Aucune période enregistrée</div>';
+    return;
+  }
+  el.innerHTML = absences.map(function(ab, idx){
+    const startFr = new Date(ab.start+'T00:00').toLocaleDateString('fr-FR');
+    const endFr = new Date(ab.end+'T00:00').toLocaleDateString('fr-FR');
+    return '<div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;background:var(--light);border-radius:8px;margin-bottom:.4rem">' +
+      '<span style="font-size:1rem">🌴</span>' +
+      '<div style="flex:1;font-size:.82rem">' +
+        '<div style="font-weight:600">' + startFr + ' → ' + endFr + '</div>' +
+        (ab.reason ? '<div style="color:var(--grey);font-size:.75rem">' + ab.reason.replace(/</g,'&lt;') + '</div>' : '') +
+      '</div>' +
+      '<button class="btn btn-danger btn-sm" onclick="removeAbsence(' + idx + ')" title="Supprimer">🗑️</button>' +
+    '</div>';
+  }).join('');
+}
+
+async function addAbsence(){
+  const emp = employees.find(e=>e.id===absenceEmpId);
+  if(!emp) return;
+  const start = document.getElementById('absence-start').value;
+  const end = document.getElementById('absence-end').value;
+  const reason = document.getElementById('absence-reason').value.trim();
+  if(!start || !end){ showToast('⚠️ Renseigne une date de début et de fin'); return; }
+  if(end < start){ showToast('⚠️ La date de fin doit être après la date de début'); return; }
+  if(!emp.absences) emp.absences = [];
+  emp.absences.push({start, end, reason});
+  emp.absences.sort(function(a,b){ return a.start < b.start ? -1 : 1; });
+  await saveEmployeesToSheets();
+  document.getElementById('absence-start').value = '';
+  document.getElementById('absence-end').value = '';
+  document.getElementById('absence-reason').value = '';
+  renderAbsenceList();
+  showToast('✅ Période de congé ajoutée');
+}
+
+async function removeAbsence(idx){
+  const emp = employees.find(e=>e.id===absenceEmpId);
+  if(!emp || !emp.absences) return;
+  emp.absences.splice(idx, 1);
+  await saveEmployeesToSheets();
+  renderAbsenceList();
+  showToast('Période supprimée');
+}
+
 function isHilel(){
   return currentUser && currentUser.login.toLowerCase() === 'hilel';
 }
@@ -3608,6 +3754,7 @@ function renderEmployes(){
         <div class="emp-role">${e.role} · @${e.login}</div>
       </div>
       <div class="emp-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openAbsenceModal(${e.id})" title="Gérer les congés/absences">🌴</button>
         <button class="btn btn-ghost btn-sm" onclick="openChangePassModal('monteur',${e.id})" title="Changer mot de passe">🔑</button>
         <button class="btn btn-ghost btn-sm" onclick="toggleEmpActive(${e.id})" title="${e.actif===false?'Réactiver':'Désactiver'}">${e.actif===false?'✅':'⏸️'}</button>
         <button class="btn btn-danger btn-sm" onclick="removeEmp(${e.id})" title="Supprimer">🗑️</button>
