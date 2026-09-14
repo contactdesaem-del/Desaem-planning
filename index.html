@@ -1885,6 +1885,15 @@ function renderMobileAgendaWeek(){
       '</div>';
     dayBlock.appendChild(header);
 
+    // ★ Bandeau rouge "en congé"
+    var mobileWeekAbsent = getAbsentEmployeesForDate(dateStr);
+    if(mobileWeekAbsent.length){
+      var absBanner = document.createElement('div');
+      absBanner.style.cssText = 'background:#C0392B;color:white;font-size:.72rem;font-weight:600;text-align:center;padding:.3rem .5rem';
+      absBanner.textContent = '🌴 En congé : ' + mobileWeekAbsent.map(function(e){ return e.nom; }).join(', ');
+      dayBlock.appendChild(absBanner);
+    }
+
     if(dayMissions.length > 0){
       var list = document.createElement('div');
       list.style.cssText = 'padding:.4rem .6rem .55rem';
@@ -1943,6 +1952,15 @@ function renderMobileAgendaDay(){
     renderCalendar();
   };
   pv.appendChild(backBtn);
+
+  // ★ Bandeau rouge "en congé"
+  var mobileDayAbsent = getAbsentEmployeesForDate(dateStr);
+  if(mobileDayAbsent.length){
+    var mobileDayBanner = document.createElement('div');
+    mobileDayBanner.style.cssText = 'background:#C0392B;color:white;font-size:.8rem;font-weight:600;text-align:center;padding:.45rem;border-radius:8px;margin-bottom:.6rem';
+    mobileDayBanner.textContent = '🌴 En congé aujourd\'hui : ' + mobileDayAbsent.map(function(e){ return e.nom; }).join(', ');
+    pv.appendChild(mobileDayBanner);
+  }
 
   if(!dayMissions.length){
     var empty = document.createElement('div');
@@ -2123,7 +2141,7 @@ function renderWeekView(){
     var dateStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     var isToday = dateStr === todayStr;
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'background:'+(isToday?'var(--copper)':'var(--dark)')+';color:white;text-align:center;padding:.35rem .2rem;cursor:pointer;border-right:1px solid #555';
+    hdr.style.cssText = 'background:'+(isToday?'var(--copper)':'var(--dark)')+';color:white;text-align:center;padding:.35rem .2rem;cursor:pointer;border-right:1px solid #555;height:38px;box-sizing:border-box';
     hdr.innerHTML = '<div style="font-size:.7rem;opacity:.8">'+dayNames[idx]+'</div><div style="font-weight:700;font-size:1rem">'+d.getDate()+'</div>';
     hdr.onclick = (function(ds){ return function(){
       calDate = new Date(ds+'T00:00');
@@ -2136,6 +2154,30 @@ function renderWeekView(){
     headerRow.appendChild(hdr);
   });
   wrapper.appendChild(headerRow);
+
+  // ★ Bandeau rouge "en congé" — ligne sticky juste sous les en-têtes de jour,
+  // toujours visible même en scrollant dans la journée.
+  var absenceRow = document.createElement('div');
+  absenceRow.style.cssText = 'display:grid;grid-template-columns:50px repeat(7,1fr);position:sticky;top:38px;z-index:19';
+  var absenceCorner = document.createElement('div');
+  absenceCorner.style.cssText = 'background:white';
+  absenceRow.appendChild(absenceCorner);
+  var anyAbsenceWeek = false;
+  days.forEach(function(d){
+    var dateStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    var absent = getAbsentEmployeesForDate(dateStr);
+    var cell = document.createElement('div');
+    if(absent.length){
+      anyAbsenceWeek = true;
+      cell.style.cssText = 'background:#C0392B;color:white;font-size:.62rem;font-weight:600;text-align:center;padding:.15rem .1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      cell.title = absent.map(function(e){ return e.nom; }).join(', ') + ' en congé';
+      cell.textContent = '🌴 ' + absent.map(function(e){ return e.nom.split(' ')[0]; }).join(', ');
+    } else {
+      cell.style.cssText = 'background:white';
+    }
+    absenceRow.appendChild(cell);
+  });
+  if(anyAbsenceWeek) wrapper.appendChild(absenceRow);
 
   // Grid body
   var gridBody = document.createElement('div');
@@ -2510,6 +2552,15 @@ function renderDayView(){
   var _prevScrollTop = pv ? pv.scrollTop : 0; // ★ mémorise la position avant reconstruction
   pv.innerHTML = '';
   pv.style.cssText = 'overflow:auto;height:calc(100vh - 110px);width:100%';
+
+  // ★ Bandeau rouge "en congé" — sticky en haut de la vue Jour
+  var dayAbsent = getAbsentEmployeesForDate(dateStr);
+  if(dayAbsent.length){
+    var dayBanner = document.createElement('div');
+    dayBanner.style.cssText = 'position:sticky;top:0;z-index:21;background:#C0392B;color:white;font-size:.8rem;font-weight:600;text-align:center;padding:.4rem';
+    dayBanner.textContent = '🌴 En congé aujourd\'hui : ' + dayAbsent.map(function(e){ return e.nom; }).join(', ');
+    pv.appendChild(dayBanner);
+  }
 
   var wrapper = document.createElement('div');
   wrapper.style.cssText = 'display:grid;grid-template-columns:50px 1fr;width:100%';
@@ -3638,6 +3689,15 @@ async function saveEmployeesToSheets(){
 function isEmployeeAbsentOnDate(emp, dateStr){
   if(!emp || !emp.absences || !dateStr) return null;
   return emp.absences.find(function(ab){ return dateStr >= ab.start && dateStr <= ab.end; }) || null;
+}
+
+// Renvoie la liste des monteurs actifs en congé à une date donnée (pour le
+// bandeau rouge affiché directement sur le planning).
+function getAbsentEmployeesForDate(dateStr){
+  if(!dateStr) return [];
+  return employees.filter(function(e){ return e.actif!==false; }).filter(function(e){
+    return !!isEmployeeAbsentOnDate(e, dateStr);
+  });
 }
 
 let absenceEmpId = null;
