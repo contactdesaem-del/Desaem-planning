@@ -3569,6 +3569,12 @@ async function saveMission(btn){
   duplicatingFrom = null;
   const savedDate = mission.date;
 
+  // ★ true si on vient de CRÉER une mission (pas une modification) — dans ce cas,
+  // la double vérification anti-écrasement n'apporte rien (une mission qui vient
+  // d'être créée ne peut entrer en conflit avec rien de préexistant), donc on
+  // l'évite pour accélérer l'enregistrement. Les modifications restent protégées.
+  const isNewMission = !editingMissionId;
+
   // ★ Upload réel des fichiers sélectionnés dans le champ de la fiche (jusqu'ici,
   // ce champ ne faisait qu'un aperçu visuel sans jamais envoyer le fichier —
   // c'est corrigé ici : même mécanisme d'envoi que côté monteur).
@@ -3605,7 +3611,11 @@ async function saveMission(btn){
 
   setBtnLoading(btn, true, 'Enregistrement…');
   try {
-    await saveMissionsToSheets([finalMission.id]);
+    if(isNewMission){
+      await saveMissionsToSheets(); // rapide : pas de fusion, rien à protéger pour une création
+    } else {
+      await saveMissionsToSheets([finalMission.id]); // protégé : fusionne avec la version serveur la plus fraîche
+    }
   } finally {
     setBtnLoading(btn, false);
   }
