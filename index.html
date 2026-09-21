@@ -987,6 +987,19 @@ let missions = [];
 let nextMissionId = 1;
 let nextEmpId = 10;
 
+// ★ RECHERCHE ROBUSTE D'UNE MISSION PAR ID
+// Google Sheets peut renvoyer les identifiants tantôt en nombre, tantôt en
+// chaîne ("1738...") selon le format de la colonne. Les comparaisons strictes
+// (m.id === id) échouaient donc silencieusement : la mission n'était pas
+// trouvée, la modification (statut "Terminée", bon Leroy Merlin...) n'était
+// jamais appliquée ni envoyée au serveur, alors que le monteur voyait bien un
+// message de succès. On compare désormais toujours les ID sous forme de texte.
+function findMission(id){
+  if(id === null || id === undefined) return undefined;
+  var key = String(id);
+  return missions.find(function(mx){ return String(mx.id) === key; });
+}
+
 // ★ Génère un ID de mission résistant aux collisions : horodatage (ms) + composant
 // aléatoire, pour limiter le risque que deux appareils créant une mission au même
 // instant se retrouvent avec le même ID (contrairement à un simple compteur local).
@@ -1007,7 +1020,10 @@ async function saveMissionsToSheets(touchedMissionIds) {
   try {
     let missionsToSend = missions;
 
-    if (Array.isArray(touchedMissionIds) && touchedMissionIds.length) {
+    // ★ Un tableau vide est volontairement accepté : il signifie « je ne modifie
+    // aucune mission » (ex : sauvegarde des clients). On repart alors de la
+    // version serveur des missions au lieu d'écraser avec la copie locale.
+    if (Array.isArray(touchedMissionIds)) {
       try {
         const freshRes = await fetch(SHEETS_URL + '?t=' + Date.now());
         const freshText = await freshRes.text();
@@ -1049,11 +1065,23 @@ async function saveMissionsToSheets(touchedMissionIds) {
     // ★ text/plain évite le preflight CORS tout en envoyant le JSON correctement
     // (no-cors empêche le body d'être lu par Apps Script)
     const payload = JSON.stringify({action: 'save_missions', missions: missionsToSend, clients, employees});
-    await fetch(SHEETS_URL, {
+    const saveRes = await fetch(SHEETS_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain'},
       body: payload
     });
+    // ★ On lit réellement la réponse : jusqu'ici une erreur renvoyée par Apps
+    // Script (quota, cellule > 50 000 caractères, script planté...) passait
+    // totalement inaperçue et l'appelant affichait quand même « enregistré ».
+    try {
+      const saveText = await saveRes.text();
+      if(!saveRes.ok || /"?error"?\s*:/i.test(saveText)){
+        console.error('[Sheets] Le serveur a refusé la sauvegarde :', saveRes.status, saveText.slice(0,300));
+        return false;
+      }
+    } catch(readErr){
+      console.warn('[Sheets] Réponse illisible (sauvegarde probablement passée) :', readErr);
+    }
     lastDataHash = JSON.stringify(missions);
     console.log('[Sheets] Missions + clients + employees sauvegardés ✅' + (touchedMissionIds ? ' (fusion ciblée: ' + touchedMissionIds.join(',') + ')' : ''));
     return true;
@@ -2389,7 +2417,7 @@ function renderWeekView(){
             var newEndH = Math.floor(Math.min(23*60+59, newEndMins)/60);
             var newEndM = Math.min(23*60+59, newEndMins) % 60;
 
-            var mObj = missions.find(function(mx){ return mx.id === parseInt(mDiv.dataset.missionId); });
+            var mObj = findMission(mDiv.dataset.missionId);
             if(mObj){
               mObj.heure = String(newH).padStart(2,'0')+':'+String(newM).padStart(2,'0');
               mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
@@ -2490,7 +2518,7 @@ function renderWeekView(){
             var newEndH = Math.floor(Math.min(23*60+59,newEndMins)/60);
             var newEndM = Math.min(23*60+59,newEndMins) % 60;
 
-            var mObj = missions.find(function(mx){ return mx.id === parseInt(mDiv.dataset.missionId); });
+            var mObj = findMission(mDiv.dataset.missionId);
             if(mObj){
               mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
               saveMissionsToSheets([mObj.id]);
@@ -2720,7 +2748,7 @@ function renderDayView(){
           var nH = Math.floor(newMins/60), nM = newMins%60;
           var net = Math.min(23*60+59, newMins+duration);
           var nEH = Math.floor(net/60), nEM = net%60;
-          var mObj = missions.find(function(mx){ return mx.id===parseInt(mDiv.dataset.missionId); });
+          var mObj = findMission(mDiv.dataset.missionId);
           if(mObj){
             mObj.heure = String(nH).padStart(2,'0')+':'+String(nM).padStart(2,'0');
             mObj.heureFin = String(nEH).padStart(2,'0')+':'+String(nEM).padStart(2,'0');
@@ -2807,7 +2835,7 @@ function renderDayView(){
           var newEndH = Math.floor(Math.min(23*60+59,newEndMins)/60);
           var newEndM = Math.min(23*60+59,newEndMins) % 60;
 
-          var mObj = missions.find(function(mx){ return mx.id === parseInt(mDiv.dataset.missionId); });
+          var mObj = findMission(mDiv.dataset.missionId);
           if(mObj){
             mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
             saveMissionsToSheets([mObj.id]);
@@ -3218,6 +3246,28 @@ function statusBadge(s){
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
+// ★ Changement de statut direct depuis la liste (admin) — plus besoin d'ouvrir
+// la fiche au crayon. Les clics sur le menu ne doivent pas ouvrir la mission,
+// d'où les stopPropagation.
+const STATUS_OPTIONS = [
+  {val:'en_attente', label:'⏳ En attente'},
+  {val:'confirme',   label:'✅ Confirmée'},
+  {val:'en_cours',   label:'🔄 En cours'},
+  {val:'termine',    label:'🏁 Terminée'},
+  {val:'facture',    label:'🧾 Facturée'},
+  {val:'annule',     label:'❌ Annulée'}
+];
+
+function quickStatusSelect(m){
+  if(!currentUser || !currentUser.isAdmin) return '';
+  return '<select title="Changer le statut" onclick="event.stopPropagation()" onchange="event.stopPropagation();changeStatus(\'' + m.id + '\',this.value)" ' +
+    'style="flex:1;min-width:130px;border:1px solid var(--border);border-radius:8px;padding:.35rem .5rem;font-size:.8rem;font-family:inherit;cursor:pointer;background:var(--light)">' +
+    STATUS_OPTIONS.map(function(s){
+      return '<option value="' + s.val + '"' + (m.statut === s.val ? ' selected' : '') + '>' + s.label + '</option>';
+    }).join('') +
+  '</select>';
+}
+
 function missionCard(m, compact=false){
   const monteurNames=m.monteurs.map(id=>{const e=employees.find(e=>e.id===id);return e?e.nom.split(' ')[0]:''}).filter(Boolean).join(', ');
   const mapsUrl=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(m.adresse)}`;
@@ -3238,6 +3288,7 @@ function missionCard(m, compact=false){
         ${monteurNames?`<div class="mission-monteurs">👷 ${monteurNames} · 🚛 ${m.camions} camion(s)</div>`:''}
       </div>
       ${!compact&&currentUser.isAdmin?`<div class="mission-actions" style="flex-wrap:wrap;gap:.3rem">
+        ${quickStatusSelect(m)}
         <button class="btn btn-ghost btn-sm" onclick="editMission(${m.id})">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="deleteMission(${m.id})">🗑️</button>
         <button class="btn btn-ghost btn-sm" style="background:#FAF7F3;border-color:var(--copper);color:var(--copper-dk);flex:1" onclick="generatePDFReport(${m.id})">📄 Rapport PDF</button>
@@ -3363,7 +3414,7 @@ function checkMonteurConflictsLive(){
 }
 
 function editMission(id){
-  const m=missions.find(m=>m.id===id);
+  const m=findMission(id);
   if(m)openMissionModal(m);
 }
 
@@ -3578,7 +3629,7 @@ async function saveMission(btn){
   // ★ Upload réel des fichiers sélectionnés dans le champ de la fiche (jusqu'ici,
   // ce champ ne faisait qu'un aperçu visuel sans jamais envoyer le fichier —
   // c'est corrigé ici : même mécanisme d'envoi que côté monteur).
-  const finalMission = editingMissionId ? missions.find(mm=>mm.id===editingMissionId) : mission;
+  const finalMission = editingMissionId ? (findMission(editingMissionId) || mission) : mission;
   const fichierInput = document.getElementById('m-fichier');
   if(fichierInput && fichierInput.files && fichierInput.files.length){
     if(!finalMission.attachments) finalMission.attachments = [];
@@ -3611,11 +3662,12 @@ async function saveMission(btn){
 
   setBtnLoading(btn, true, 'Enregistrement…');
   try {
-    if(isNewMission){
-      await saveMissionsToSheets(); // rapide : pas de fusion, rien à protéger pour une création
-    } else {
-      await saveMissionsToSheets([finalMission.id]); // protégé : fusionne avec la version serveur la plus fraîche
-    }
+    // ★ Même une création doit passer par la fusion ciblée : sans elle, on
+    // renvoyait tout le tableau local au serveur et on écrasait les
+    // modifications faites entre-temps par les monteurs (mission passée en
+    // « Terminée », bon de réception Leroy Merlin...), qui repassaient alors
+    // en « Confirmée » côté admin.
+    await saveMissionsToSheets([finalMission.id]);
   } finally {
     setBtnLoading(btn, false);
   }
@@ -3995,7 +4047,7 @@ async function saveNewPass(btn){
 
 // ══ WHATSAPP ══════════════════════════════════════════════════════════════════
 function sendWhatsApp(id){
-  const m = missions.find(function(m){return m.id===id});
+  const m = findMission(id);
   if(!m) return;
   const monteurNames = m.monteurs.map(function(mid){
     const e = employees.find(function(e){return e.id===mid});
@@ -4379,7 +4431,7 @@ function closeCommentModal(){
 async function saveComment(btn){
   const text = document.getElementById('comment-text').value.trim();
   if(!text){showToast('Écris un commentaire');return}
-  const m = missions.find(m=>m.id===commentingMissionId);
+  const m = findMission(commentingMissionId);
   if(!m) return;
   if(!m.comments) m.comments = [];
   m.comments.push({
@@ -4509,6 +4561,28 @@ async function uploadAttachmentFile(file, missionId){
 // (quelques dizaines de caractères) dans les données de la mission.
 // En cas d'échec réseau, on garde la dataURL d'origine en dernier recours
 // plutôt que de perdre la signature (dégradation silencieuse, pas de blocage).
+// Repli : réduit la signature à une petite image (≈ 2 000 à 6 000 caractères)
+// pour qu'elle tienne dans une cellule Google Sheets si l'hébergement échoue.
+function shrinkSignatureDataUrl(dataUrl, maxW){
+  try {
+    return new Promise(function(resolve){
+      const img = new Image();
+      img.onload = function(){
+        const w = Math.min(maxW || 320, img.width || 320);
+        const h = Math.max(1, Math.round((img.height || 100) * (w / (img.width || w))));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const cx = c.getContext('2d');
+        cx.fillStyle = '#fff'; cx.fillRect(0,0,w,h);
+        cx.drawImage(img, 0, 0, w, h);
+        try { resolve(c.toDataURL('image/jpeg', 0.6)); } catch(e){ resolve(dataUrl); }
+      };
+      img.onerror = function(){ resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  } catch(e){ return Promise.resolve(dataUrl); }
+}
+
 async function uploadSignatureImage(dataUrl, label){
   try {
     const formData = new FormData();
@@ -4520,11 +4594,11 @@ async function uploadSignatureImage(dataUrl, label){
     if(data.success && data.data && data.data.url){
       return data.data.display_url || data.data.url;
     }
-    console.warn('[Signature] Échec upload ImgBB, conservation en base64 (risque de dépassement de cellule) :', data);
-    return dataUrl;
+    console.warn('[Signature] Échec upload ImgBB, repli sur une image réduite :', data);
+    return await shrinkSignatureDataUrl(dataUrl, 320);
   } catch(err){
-    console.warn('[Signature] Erreur réseau upload signature, conservation en base64 :', err);
-    return dataUrl;
+    console.warn('[Signature] Erreur réseau upload signature, repli sur une image réduite :', err);
+    return await shrinkSignatureDataUrl(dataUrl, 320);
   }
 }
 
@@ -4535,7 +4609,7 @@ async function uploadFiles(btn){
   const progress = document.getElementById('upload-progress');
   progress.style.display = 'block';
   progress.textContent = '⏳ Envoi en cours...';
-  const mission = missions.find(m=>m.id===uploadingMissionId);
+  const mission = findMission(uploadingMissionId);
   if(!mission){showToast('Mission introuvable');return;}
   if(!mission.attachments) mission.attachments = [];
   setBtnLoading(btn, true, 'Envoi…');
@@ -4621,7 +4695,7 @@ function closeDetailModal(){
 }
 
 function openDetailModal(id){
-  const m = missions.find(m=>m.id===id);
+  const m = findMission(id);
   if(!m) return;
   const isLM = isLeroyMerlinMission(m);
   document.getElementById('detail-client-name').textContent = '🏗️ ' + m.client;
@@ -4736,15 +4810,8 @@ function openDetailModal(id){
     attachHtml = '<div style="margin-top:1rem;padding:.75rem;background:var(--light);border-radius:8px;text-align:center;color:var(--grey);font-size:.85rem">Aucun fichier joint</div>';
   }
 
-  const statusOptions = [
-    {val:'en_attente', label:'⏳ En attente'},
-    {val:'confirme', label:'✅ Confirmée'},
-    {val:'facture', label:'🧾 Facturée'},
-    {val:'en_cours', label:'🔄 En cours'},
-    {val:'termine', label:'🏁 Terminée'},
-    {val:'annule', label:'❌ Annulée'}
-  ];
-  const statusSelect = '<select onchange="changeStatus(' + id + ',this.value)" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:.5rem .75rem;font-size:.85rem;font-family:inherit;cursor:pointer;background:var(--light)">' +
+  const statusOptions = STATUS_OPTIONS;
+  const statusSelect = '<select onchange="changeStatus(\'' + id + '\',this.value)" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:.5rem .75rem;font-size:.85rem;font-family:inherit;cursor:pointer;background:var(--light)">' +
     statusOptions.map(function(s){ return '<option value="' + s.val + '"' + (m.statut === s.val ? ' selected' : '') + '>' + s.label + '</option>'; }).join('') +
   '</select>';
   const adminActions = currentUser.isAdmin ? 
@@ -4917,7 +4984,7 @@ function openDetailModal(id){
 
 // ══ CHANGE STATUS (admin only) ═══════════════════════════════════════════════
 async function changeStatus(id, newStatus){
-  const m = missions.find(function(m){ return m.id === id; });
+  const m = findMission(id);
   if(!m || !currentUser.isAdmin) return;
   const oldStatut = m.statut;
   m.statut = newStatus;
@@ -4929,14 +4996,20 @@ async function changeStatus(id, newStatus){
     addMissionHistory(m, 'Statut : ' + (STATUT_LABELS_HISTORY[oldStatut]||oldStatut) + ' → ' + (STATUT_LABELS_HISTORY[newStatus]||newStatus));
     if(newStatus === 'termine') notifyClientByEmail(m, 'termine');
   }
-  await saveMissionsToSheets([id]);
+  const ok = await saveMissionsToSheets([id]);
+  if(!ok){
+    m.statut = oldStatut; // on remet l'ancien statut : le serveur n'a rien enregistré
+    renderAll();
+    showToast('⚠️ Statut non enregistré — vérifiez la connexion');
+    return;
+  }
   renderAll();
-  showToast('✅ Statut mis à jour !');
+  showToast('✅ Statut mis à jour : ' + (STATUT_LABELS_HISTORY[newStatus] || newStatus));
 }
 
 // ══ DUPLICATE MISSION ════════════════════════════════════════════════════════
 function duplicateMission(id){
-  const m = missions.find(function(m){ return parseInt(m.id) === parseInt(id); });
+  const m = findMission(id);
   if(!m) return;
   var copy = JSON.parse(JSON.stringify(m));
   // ★ Reset complet — nouvelle mission vierge sauf les infos de base
@@ -4976,7 +5049,7 @@ function duplicateMission(id){
 // ══ DELETE COMMENT & ATTACHMENT ═════════════════════════════════════════════
 async function deleteComment(missionId, commentIdx){
   if(!confirm('Supprimer ce commentaire ?')) return;
-  var m = missions.find(function(mx){ return mx.id === missionId; });
+  var m = findMission(missionId);
   if(!m || !m.comments) return;
   m.comments.splice(commentIdx, 1);
   await saveMissionsToSheets([missionId]);
@@ -4987,7 +5060,7 @@ async function deleteComment(missionId, commentIdx){
 
 async function deleteAttachment(missionId, attachIdx){
   if(!confirm('Supprimer ce fichier ?')) return;
-  var m = missions.find(function(mx){ return mx.id === missionId; });
+  var m = findMission(missionId);
   if(!m || !m.attachments) return;
   m.attachments.splice(attachIdx, 1);
   await saveMissionsToSheets([missionId]);
@@ -4998,7 +5071,7 @@ async function deleteAttachment(missionId, attachIdx){
 
 // ══ COMPLETE MISSION ══════════════════════════════════════════════════════════
 function completeMission(id){
-  const m = missions.find(m=>parseInt(m.id)===parseInt(id));
+  const m = findMission(id);
   if(!m) return;
   closeDetailModal();
   const isLM = isLeroyMerlinMission(m);
@@ -5030,7 +5103,7 @@ function openSignatureModal(missionId, terminerMode){
     showToast('⚠️ La signature est réservée aux monteurs sur le terrain');
     return;
   }
-  const m = missions.find(m=>m.id===missionId);
+  const m = findMission(missionId);
   if(!m){ showToast('Mission introuvable'); return; }
   if(m.signature && !currentUser.isAdmin && !terminerMode){
     showToast('⚠️ Cette mission a déjà été signée');
@@ -5158,7 +5231,7 @@ function clearSignature(){
 
 async function saveSignature(btn){
   if(!sigHasContent){ showToast('⚠️ Veuillez signer avant de valider'); return; }
-  const m = missions.find(m=>m.id===sigMissionId);
+  const m = findMission(sigMissionId);
   if(!m){ showToast('Mission introuvable'); return; }
 
   const nom = document.getElementById('sig-nom').value.trim() || 'Signataire';
@@ -5193,12 +5266,22 @@ async function saveSignature(btn){
   }
 
   setBtnLoading(btn, true, 'Enregistrement…');
+  let saved = false;
   try {
-    await saveMissionsToSheets([m.id]);
+    saved = await saveMissionsToSheets([m.id]);
   } finally {
     setBtnLoading(btn, false);
   }
   lastDataHash = '';
+
+  // ★ Si le serveur n'a pas accepté la sauvegarde, on garde la modale ouverte
+  // et on le dit clairement : sans cela le monteur croyait la mission terminée
+  // alors qu'elle restait « Confirmée » côté admin.
+  if(!saved){
+    showToast('⚠️ Échec de l\'enregistrement — vérifiez la connexion puis réessayez');
+    return;
+  }
+
   closeSignatureModal();
   renderAll();
 
@@ -5228,7 +5311,7 @@ async function saveClientsToSheets(){
   // localStorage immédiat (ce navigateur, hors ligne)
   try { localStorage.setItem('desaem_clients', JSON.stringify(clients)); } catch(e){}
   // Sauvegarde Sheets via le payload complet (missions+clients+employees)
-  const ok = await saveMissionsToSheets();
+  const ok = await saveMissionsToSheets([]); // [] = aucune mission modifiée ici
   if(ok){
     console.log('[Clients] Sauvegardés sur Sheets (' + clients.length + ' clients)');
     // Forcer un rechargement pour que tous les appareils voient la mise à jour
@@ -5605,7 +5688,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); 
 
 // ── Download all ─────────────────────────────────────────────────────────────
 function downloadAllAttachments(missionId, type){
-  const m = missions.find(m=>m.id===missionId);
+  const m = findMission(missionId);
   if(!m || !m.attachments) return;
   const list = type==='images'
     ? m.attachments.filter(a=>a.type&&a.type.startsWith('image/'))
@@ -5630,7 +5713,7 @@ function downloadAllAttachments(missionId, type){
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function generatePDFReport(missionId){
-  const m = missions.find(m=>m.id===missionId);
+  const m = findMission(missionId);
   if(!m){ showToast('Mission introuvable'); return; }
 
   showToast('⏳ Génération du PDF en cours...');
@@ -5853,8 +5936,8 @@ function autoDetectLM(){
 let lmTerminerMode = false;
 
 function openLMModal(missionId, terminerMode){
-  const mid = parseInt(missionId);
-  const m = missions.find(m=>parseInt(m.id)===mid);
+  const mid = missionId;
+  const m = findMission(mid);
   if(!m){ showToast('Mission introuvable (id:'+missionId+')'); console.log('[LM] Mission introuvable, id:', missionId, 'type:', typeof missionId, 'missions:', missions.map(m=>m.id)); return; }
   lmMissionId = mid;
   lmTerminerMode = !!terminerMode;
@@ -5923,6 +6006,7 @@ async function saveLMBon(btn){
   const heureStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   const sigClientRaw = document.getElementById('lm-canvas-client').toDataURL('image/png');
   const sigEntrepriseRaw = document.getElementById('lm-canvas-entreprise').toDataURL('image/png');
+  let lmSaveOk = false;
   setBtnLoading(btn, true, 'Génération…');
   try {
     // ★ Le PDF immédiat utilise directement les images brutes du canvas (rapide,
@@ -5930,7 +6014,11 @@ async function saveLMBon(btn){
     // doit éviter le base64 pour ne pas dépasser la limite de 50 000 caractères
     // par cellule — elle utilise donc les URLs hébergées, une fois l'upload fait.
     await generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient:sigClientRaw,sigEntreprise:sigEntrepriseRaw,dateStr});
-    const m = missions.find(m=>m.id===lmMissionId);
+    const m = findMission(lmMissionId);
+    if(!m){
+      showToast('⚠️ Mission introuvable — bon non enregistré');
+      console.error('[LM] Mission introuvable à l\'enregistrement. id:', lmMissionId, 'ids connus:', missions.map(function(x){return x.id;}));
+    }
     if(m){
       setBtnLoading(btn, true, 'Envoi des signatures…');
       const [sigClient, sigEntreprise] = await Promise.all([
@@ -5950,12 +6038,16 @@ async function saveLMBon(btn){
         addMissionHistory(m, 'Statut : → Terminée (Bon Leroy Merlin)');
         notifyClientByEmail(m, 'termine');
       }
-      await saveMissionsToSheets([m.id]);
+      lmSaveOk = await saveMissionsToSheets([m.id]);
       lastDataHash = '';
       renderAll();
     }
   } finally {
     setBtnLoading(btn, false);
+  }
+  if(!lmSaveOk){
+    showToast('⚠️ Le bon a été généré mais l\'enregistrement a échoué — réessayez');
+    return;
   }
   closeLMModal();
   showToast(lmTerminerMode ? '✅ Intervention terminée ! Bon généré.' : '✅ Bon de réception Leroy Merlin généré !');
@@ -5963,7 +6055,7 @@ async function saveLMBon(btn){
 
 // ★ Permet à l'admin de re-télécharger un bon LM déjà rempli par le monteur
 function downloadExistingLMBon(missionId){
-  const m = missions.find(m=>parseInt(m.id)===parseInt(missionId));
+  const m = findMission(missionId);
   if(!m || !m.lmBon){ showToast('Aucun bon de réception enregistré pour cette mission'); return; }
   generateLMBonPDF(m.lmBon);
 }
