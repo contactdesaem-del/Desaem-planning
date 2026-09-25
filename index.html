@@ -6029,6 +6029,17 @@ async function saveLMBon(btn){
       m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
       m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient, signedBy:currentUser.nom};
       m.conforme = sansReserve;
+      // ★ Repère si CETTE mission (une fois sérialisée) approche/dépasse la
+      // limite de 50 000 caractères par cellule Google Sheets — cause fréquente
+      // d'un champ qui « disparaît » silencieusement au retour du serveur.
+      try {
+        const missionSize = JSON.stringify(m).length;
+        console.log('[LM] Taille de la mission sérialisée :', missionSize, 'caractères');
+        if(missionSize > 45000){
+          console.warn('[LM] ⚠️ Mission proche/au-delà de la limite de cellule Google Sheets (50 000 car.). ' +
+            'Risque réel que le bon Leroy Merlin (ou d\'autres champs) soit tronqué par le backend.');
+        }
+      } catch(sizeErr){}
       // ★ Marquer terminée si mode terminer
       if(lmTerminerMode){
         m.statut = 'termine';
@@ -6040,13 +6051,41 @@ async function saveLMBon(btn){
       }
       lmSaveOk = await saveMissionsToSheets([m.id]);
       lastDataHash = '';
+
+      // ★ VÉRIFICATION : on sait maintenant que certains backends Apps Script
+      // répondent "succès" même quand une écriture a échoué ou tronqué un
+      // champ (cellule trop grande, colonne non gérée, etc.). Comme c'est
+      // précisément le bon Leroy Merlin qui disparaissait côté admin sans
+      // aucune erreur signalée, on relit la mission depuis le serveur juste
+      // après l'envoi pour confirmer que le champ lmBon est bien revenu.
+      if(lmSaveOk){
+        try {
+          const checkRes = await fetch(SHEETS_URL + '?t=' + Date.now());
+          const checkData = JSON.parse(await checkRes.text());
+          const checkMissions = Array.isArray(checkData) ? checkData
+            : (checkData && Array.isArray(checkData.missions) ? checkData.missions : []);
+          const checkM = checkMissions.find(function(cm){ return String(cm.id) === String(m.id); });
+          if(!checkM || !checkM.lmBon){
+            console.error('[LM] ⚠️ Le serveur a confirmé la sauvegarde mais le bon n\'est PAS revenu au chargement. ' +
+              'Le backend (Apps Script / Google Sheets) ignore ou tronque probablement le champ "lmBon" — ' +
+              'à vérifier côté script serveur (colonne manquante ou cellule dépassant la limite de caractères). ' +
+              'Mission id:', m.id, '— mission relue du serveur:', checkM);
+            lmSaveOk = false;
+          } else {
+            console.log('[LM] ✅ Bon confirmé présent côté serveur après relecture.');
+            missions = checkMissions; // resynchroniser avec ce que le serveur a réellement retourné
+          }
+        } catch(verifyErr){
+          console.warn('[LM] Vérification post-sauvegarde impossible (pas forcément un échec) :', verifyErr);
+        }
+      }
       renderAll();
     }
   } finally {
     setBtnLoading(btn, false);
   }
   if(!lmSaveOk){
-    showToast('⚠️ Le bon a été généré mais l\'enregistrement a échoué — réessayez');
+    showToast('⚠️ Le bon a été généré mais n\'a pas pu être confirmé côté serveur — voir la console (F12) pour le détail, ou réessayez');
     return;
   }
   closeLMModal();
