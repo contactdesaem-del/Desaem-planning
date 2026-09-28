@@ -1009,6 +1009,53 @@ function generateMissionId(){
 
 const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzWQ4H10OUPPBKf6IVYnANj8uqDjo9epO7gperAEdbD-_6q-flYNWi9Iq9U9mRfCi_DfQ/exec';
 
+// ★ FUSION CHAMP PAR CHAMP (anti-écrasement)
+// Problème corrigé : quand l'admin gardait la fiche d'une mission ouverte (le
+// rafraîchissement auto est alors en pause) puis y enregistrait quelque chose
+// (document, statut, commentaire...), SA copie périmée remplaçait entièrement la
+// mission côté serveur : le statut « Terminée » et le bon Leroy Merlin saisis
+// entre-temps par le monteur disparaissaient.
+// Solution : on garde une photo de chaque mission telle qu'elle était au dernier
+// chargement (missionBaselines). À l'enregistrement, on n'applique sur la version
+// fraîche du serveur QUE les champs réellement modifiés par cet utilisateur.
+let missionBaselines = {};
+function snapshotBaselines(list){
+  const b = {};
+  (list || missions).forEach(function(m){
+    try { b[String(m.id)] = JSON.stringify(m); } catch(e){}
+  });
+  missionBaselines = b;
+}
+function mergeMissionFields(fresh, local, baseJson){
+  if(!baseJson || !fresh) return local || fresh;        // création / pas de référence
+  let base; try { base = JSON.parse(baseJson); } catch(e){ return local; }
+  const out = Object.assign({}, fresh);
+  const keys = {};
+  Object.keys(local).forEach(function(k){ keys[k]=1; });
+  Object.keys(base).forEach(function(k){ keys[k]=1; });
+  Object.keys(keys).forEach(function(k){
+    const lv = local[k], bv = base[k];
+    if(JSON.stringify(lv) === JSON.stringify(bv)) return;   // non modifié ici → on garde le serveur
+    if(Array.isArray(lv) && Array.isArray(bv) && Array.isArray(fresh[k])){
+      // Listes (commentaires, historique, pièces jointes) : on applique seulement
+      // les ajouts / retraits faits ici, sans perdre ceux faits ailleurs.
+      const baseSet = new Set(bv.map(function(x){ return JSON.stringify(x); }));
+      const localSet = new Set(lv.map(function(x){ return JSON.stringify(x); }));
+      const added = lv.filter(function(x){ return !baseSet.has(JSON.stringify(x)); });
+      const removed = new Set(bv.filter(function(x){ return !localSet.has(JSON.stringify(x)); }).map(function(x){ return JSON.stringify(x); }));
+      const kept = fresh[k].filter(function(x){ return !removed.has(JSON.stringify(x)); });
+      const keptSet = new Set(kept.map(function(x){ return JSON.stringify(x); }));
+      added.forEach(function(x){ if(!keptSet.has(JSON.stringify(x))) kept.push(x); });
+      out[k] = kept;
+    } else if(lv === undefined){
+      delete out[k];
+    } else {
+      out[k] = lv;                                            // champ modifié ici → prioritaire
+    }
+  });
+  return out;
+}
+
 // ★ touchedMissionIds (optionnel) : liste des IDs de missions réellement
 // modifiées par CET appel. Si fourni, la fonction recharge d'abord la version
 // la plus fraîche du serveur et n'y fusionne QUE ces missions précises —
@@ -1031,7 +1078,12 @@ async function saveMissionsToSheets(touchedMissionIds) {
         const freshMissions = Array.isArray(freshData) ? freshData
           : (freshData && Array.isArray(freshData.missions) ? freshData.missions : null);
 
-        if (freshMissions) {
+        // ★ Garde-fou : si le serveur répond une liste VIDE alors qu'on en a
+        // plusieurs en local (erreur passagère de lecture), on ne fusionne pas :
+        // sinon on n'enverrait que la mission modifiée et on effacerait les autres.
+        if (freshMissions && freshMissions.length === 0 && missions.length > 1) {
+          console.warn('[Sheets] Lecture serveur vide alors que le local contient', missions.length, 'missions — fusion ignorée par sécurité.');
+        } else if (freshMissions) {
           const touchedSet = new Set(touchedMissionIds.map(String));
           const localById = {};
           missions.forEach(function(m){ localById[String(m.id)] = m; });
@@ -1039,7 +1091,7 @@ async function saveMissionsToSheets(touchedMissionIds) {
           // Base = version fraîche du serveur, sauf les missions touchées par
           // CET appel qui prennent la version locale (celle qu'on vient de modifier)
           const merged = freshMissions.map(function(fm){
-            return touchedSet.has(String(fm.id)) ? (localById[String(fm.id)] || fm) : fm;
+            return touchedSet.has(String(fm.id)) && localById[String(fm.id)] ? mergeMissionFields(fm, localById[String(fm.id)], missionBaselines[String(fm.id)]) : fm;
           });
           // Missions touchées localement mais absentes du serveur (nouvelles créations)
           touchedSet.forEach(function(tid){
@@ -1056,6 +1108,7 @@ async function saveMissionsToSheets(touchedMissionIds) {
 
           missionsToSend = finalMerged;
           missions = finalMerged; // garder la copie locale synchronisée avec le serveur
+          snapshotBaselines(missions);
         }
       } catch(mergeErr) {
         console.warn('[Sheets] Fusion anti-écrasement impossible, sauvegarde classique en repli:', mergeErr);
@@ -1083,6 +1136,7 @@ async function saveMissionsToSheets(touchedMissionIds) {
       console.warn('[Sheets] Réponse illisible (sauvegarde probablement passée) :', readErr);
     }
     lastDataHash = JSON.stringify(missions);
+    snapshotBaselines(missions);
     console.log('[Sheets] Missions + clients + employees sauvegardés ✅' + (touchedMissionIds ? ' (fusion ciblée: ' + touchedMissionIds.join(',') + ')' : ''));
     return true;
   } catch(e) {
@@ -1102,12 +1156,14 @@ async function loadMissionsFromSheets() {
     // Format tableau = ancien Apps Script ou nouveau sans clients/employees
     if(Array.isArray(data)){
       missions = data;
+      snapshotBaselines(missions);
       console.log('[Sheets] Format tableau — missions:', missions.length);
     }
     // Format objet = nouveau Apps Script
     else if(data && typeof data === 'object' && !data.error){
       if(Array.isArray(data.missions)){
         missions = data.missions;
+        snapshotBaselines(missions);
         console.log('[Sheets] Format objet — missions:', missions.length);
       }
       if(Array.isArray(data.clients) && data.clients.length > 0){
@@ -1279,6 +1335,7 @@ document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key===
       // Nouveau format : {missions, clients, employees}
       if(Array.isArray(data.missions) && data.missions.length > 0){
         missions = data.missions;
+        snapshotBaselines(missions);
         nextMissionId = Math.max(...missions.map(m=>m.id||0), 0) + 1;
         console.log('[Init] Missions:', missions.length);
       }
@@ -1314,6 +1371,7 @@ document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key===
     } else if(Array.isArray(data)){
       // Ancien format : tableau de missions seules
       missions = data;
+      snapshotBaselines(missions);
       nextMissionId = Math.max(...missions.map(m=>m.id||0), 0) + 1;
       console.log('[Init] ⚠️ Ancien format Sheets (missions seules):', missions.length);
     }
@@ -4403,6 +4461,7 @@ function startAutoRefresh(){
           console.log('[AutoRefresh] Nouvelles données détectées — missions:', newMissions.length);
           lastDataHash = newHash;
           missions = newMissions;
+          snapshotBaselines(missions);
           nextMissionId = Math.max(...missions.map(m=>m.id||0), 0) + 1;
           isBackgroundRefresh = true;
           renderAll();
@@ -6074,6 +6133,7 @@ async function saveLMBon(btn){
           } else {
             console.log('[LM] ✅ Bon confirmé présent côté serveur après relecture.');
             missions = checkMissions; // resynchroniser avec ce que le serveur a réellement retourné
+            snapshotBaselines(missions);
           }
         } catch(verifyErr){
           console.warn('[LM] Vérification post-sauvegarde impossible (pas forcément un échec) :', verifyErr);
