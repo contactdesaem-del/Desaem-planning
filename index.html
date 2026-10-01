@@ -946,6 +946,91 @@ textarea.form-input{min-height:80px;resize:vertical}
 </div>
 
 <script>
+// ══ PANNEAU DE DIAGNOSTIC MOBILE (?debug=1) ═════════════════════════════════
+// Sur téléphone il n'y a pas de console F12. Ce panneau capture tous les
+// console.log/warn/error (et les erreurs JS non interceptées) et les affiche
+// directement à l'écran, avec un bouton pour copier le texte et l'envoyer
+// facilement (WhatsApp, email...). Invisible et sans impact tant que
+// l'adresse ne contient pas ?debug=1 — aucun risque pour l'usage normal.
+(function(){
+  const DEBUG_ON = /[?&]debug=1\b/.test(location.search);
+  window.__debugLogs = [];
+  const MAX_LOGS = 300;
+  function push(level, args){
+    try {
+      const msg = args.map(function(a){
+        if(a instanceof Error) return a.message + (a.stack ? ('\n'+a.stack) : '');
+        if(typeof a === 'object') { try { return JSON.stringify(a); } catch(e){ return String(a); } }
+        return String(a);
+      }).join(' ');
+      const t = new Date().toLocaleTimeString('fr-FR');
+      window.__debugLogs.push('[' + t + '] ' + level + ': ' + msg);
+      if(window.__debugLogs.length > MAX_LOGS) window.__debugLogs.shift();
+      if(DEBUG_ON) renderDebugPanel();
+    } catch(e){ /* ne jamais planter l'app à cause du debug */ }
+  }
+  ['log','warn','error','info'].forEach(function(level){
+    const orig = console[level];
+    console[level] = function(){
+      push(level, Array.prototype.slice.call(arguments));
+      orig.apply(console, arguments);
+    };
+  });
+  window.addEventListener('error', function(e){ push('error', ['Erreur JS non interceptée:', e.message, 'à', e.filename+':'+e.lineno]); });
+  window.addEventListener('unhandledrejection', function(e){ push('error', ['Promesse rejetée non interceptée:', e.reason]); });
+
+  let panelEl = null;
+  function renderDebugPanel(){
+    if(!DEBUG_ON) return;
+    if(!panelEl){
+      panelEl = document.createElement('div');
+      panelEl.id = 'debug-panel';
+      panelEl.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;background:#111;color:#0f0;font:11px/1.4 monospace;z-index:999999;overflow-y:auto;padding:.5rem;box-shadow:0 -2px 10px rgba(0,0,0,.5)';
+      const bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.4rem;position:sticky;top:0';
+      const title = document.createElement('span');
+      title.textContent = '🐞 Debug';
+      title.style.cssText = 'color:#fff;font-weight:bold;flex:1';
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = '📋 Copier';
+      copyBtn.style.cssText = 'background:#333;color:#fff;border:none;border-radius:4px;padding:.3rem .6rem;font-size:11px';
+      copyBtn.onclick = function(){
+        const text = window.__debugLogs.join('\n');
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(function(){ copyBtn.textContent = '✅ Copié !'; setTimeout(function(){ copyBtn.textContent='📋 Copier'; },1500); });
+        } else {
+          const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); copyBtn.textContent = '✅ Copié !'; } catch(e){ copyBtn.textContent = '❌ Échec'; }
+          document.body.removeChild(ta);
+        }
+      };
+      const hideBtn = document.createElement('button');
+      hideBtn.textContent = '✕';
+      hideBtn.style.cssText = 'background:#333;color:#fff;border:none;border-radius:4px;padding:.3rem .6rem;font-size:11px';
+      hideBtn.onclick = function(){ panelEl.style.display = 'none'; };
+      bar.appendChild(title); bar.appendChild(copyBtn); bar.appendChild(hideBtn);
+      panelEl.appendChild(bar);
+      const logsDiv = document.createElement('div');
+      logsDiv.id = 'debug-panel-logs';
+      logsDiv.style.cssText = 'white-space:pre-wrap;word-break:break-word';
+      panelEl.appendChild(logsDiv);
+      (document.body || document.documentElement).appendChild(panelEl);
+    }
+    const logsDiv = document.getElementById('debug-panel-logs');
+    if(logsDiv){
+      logsDiv.textContent = window.__debugLogs.join('\n');
+      panelEl.scrollTop = panelEl.scrollHeight;
+    }
+  }
+  if(DEBUG_ON){
+    if(document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', renderDebugPanel);
+    } else {
+      renderDebugPanel();
+    }
+  }
+})();
+
 // ══ DATA ══════════════════════════════════════════════════════════════════════
 let currentUser = null;
 let editingMissionId = null;
@@ -6054,6 +6139,15 @@ function clearLMCanvas(who){
   document.getElementById('lm-placeholder-'+who).style.display='block';
 }
 
+// ★ Empêche une opération de bloquer indéfiniment l'app (utile sur mobile où
+// le rendu PDF — html2canvas — peut traîner très longtemps selon l'appareil).
+function withTimeout(promise, ms, label){
+  return Promise.race([
+    promise,
+    new Promise(function(_, reject){ setTimeout(function(){ reject(new Error((label||'opération') + ' : délai dépassé (' + ms + 'ms)')); }, ms); })
+  ]);
+}
+
 async function saveLMBon(btn){
   if(!lmHasClient){ showToast('⚠️ La signature client est requise'); return; }
   const nomClient = document.getElementById('lm-client').value.trim();
@@ -6066,90 +6160,125 @@ async function saveLMBon(btn){
   const sigClientRaw = document.getElementById('lm-canvas-client').toDataURL('image/png');
   const sigEntrepriseRaw = document.getElementById('lm-canvas-entreprise').toDataURL('image/png');
   let lmSaveOk = false;
-  setBtnLoading(btn, true, 'Génération…');
+  let pdfOk = false;
+  setBtnLoading(btn, true, 'Enregistrement…');
+
+  // ★★★ CORRECTIF MAJEUR ★★★
+  // Avant : le PDF (rendu HTML → image via html2canvas, potentiellement long
+  // et instable sur certains mobiles) était généré EN PREMIER, et l'envoi au
+  // serveur ne se faisait qu'après, à l'intérieur du même bloc. Si le rendu du
+  // PDF restait bloqué ou plantait sur le téléphone du monteur, l'enregistrement
+  // n'était JAMAIS tenté — d'où le bon absent côté admin, sans aucune erreur
+  // visible puisque rien n'avait même essayé de partir vers le serveur.
+  // Maintenant : on enregistre D'ABORD les données critiques (statut, bon) sur
+  // le serveur ; le PDF est généré ENSUITE, en best-effort, sans jamais pouvoir
+  // bloquer ni annuler l'enregistrement déjà effectué.
   try {
-    // ★ Le PDF immédiat utilise directement les images brutes du canvas (rapide,
-    // aucune dépendance réseau). Seule la version PERSISTÉE (envoyée au Sheet)
-    // doit éviter le base64 pour ne pas dépasser la limite de 50 000 caractères
-    // par cellule — elle utilise donc les URLs hébergées, une fois l'upload fait.
-    await generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient:sigClientRaw,sigEntreprise:sigEntrepriseRaw,dateStr});
     const m = findMission(lmMissionId);
     if(!m){
       showToast('⚠️ Mission introuvable — bon non enregistré');
       console.error('[LM] Mission introuvable à l\'enregistrement. id:', lmMissionId, 'ids connus:', missions.map(function(x){return x.id;}));
+      return;
     }
-    if(m){
-      setBtnLoading(btn, true, 'Envoi des signatures…');
-      const [sigClient, sigEntreprise] = await Promise.all([
+
+    setBtnLoading(btn, true, 'Envoi des signatures…');
+    const [sigClient, sigEntreprise] = await withTimeout(
+      Promise.all([
         uploadSignatureImage(sigClientRaw, 'lm_client_mission_' + lmMissionId),
         uploadSignatureImage(sigEntrepriseRaw, 'lm_entreprise_mission_' + lmMissionId)
-      ]);
-      setBtnLoading(btn, true, 'Enregistrement…');
-      m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
-      m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient, signedBy:currentUser.nom};
-      m.conforme = sansReserve;
-      // ★ Repère si CETTE mission (une fois sérialisée) approche/dépasse la
-      // limite de 50 000 caractères par cellule Google Sheets — cause fréquente
-      // d'un champ qui « disparaît » silencieusement au retour du serveur.
-      try {
-        const missionSize = JSON.stringify(m).length;
-        console.log('[LM] Taille de la mission sérialisée :', missionSize, 'caractères');
-        if(missionSize > 45000){
-          console.warn('[LM] ⚠️ Mission proche/au-delà de la limite de cellule Google Sheets (50 000 car.). ' +
-            'Risque réel que le bon Leroy Merlin (ou d\'autres champs) soit tronqué par le backend.');
-        }
-      } catch(sizeErr){}
-      // ★ Marquer terminée si mode terminer
-      if(lmTerminerMode){
-        m.statut = 'termine';
-        m.completedBy = currentUser.nom;
-        m.completedAt = dateStr;
-        m.completedTime = heureStr;
-        addMissionHistory(m, 'Statut : → Terminée (Bon Leroy Merlin)');
-        notifyClientByEmail(m, 'termine');
-      }
-      lmSaveOk = await saveMissionsToSheets([m.id]);
-      lastDataHash = '';
+      ]), 25000, 'Envoi des signatures'
+    );
 
-      // ★ VÉRIFICATION : on sait maintenant que certains backends Apps Script
-      // répondent "succès" même quand une écriture a échoué ou tronqué un
-      // champ (cellule trop grande, colonne non gérée, etc.). Comme c'est
-      // précisément le bon Leroy Merlin qui disparaissait côté admin sans
-      // aucune erreur signalée, on relit la mission depuis le serveur juste
-      // après l'envoi pour confirmer que le champ lmBon est bien revenu.
-      if(lmSaveOk){
-        try {
-          const checkRes = await fetch(SHEETS_URL + '?t=' + Date.now());
-          const checkData = JSON.parse(await checkRes.text());
-          const checkMissions = Array.isArray(checkData) ? checkData
-            : (checkData && Array.isArray(checkData.missions) ? checkData.missions : []);
-          const checkM = checkMissions.find(function(cm){ return String(cm.id) === String(m.id); });
-          if(!checkM || !checkM.lmBon){
-            console.error('[LM] ⚠️ Le serveur a confirmé la sauvegarde mais le bon n\'est PAS revenu au chargement. ' +
-              'Le backend (Apps Script / Google Sheets) ignore ou tronque probablement le champ "lmBon" — ' +
-              'à vérifier côté script serveur (colonne manquante ou cellule dépassant la limite de caractères). ' +
-              'Mission id:', m.id, '— mission relue du serveur:', checkM);
-            lmSaveOk = false;
-          } else {
-            console.log('[LM] ✅ Bon confirmé présent côté serveur après relecture.');
-            missions = checkMissions; // resynchroniser avec ce que le serveur a réellement retourné
-            snapshotBaselines(missions);
-          }
-        } catch(verifyErr){
-          console.warn('[LM] Vérification post-sauvegarde impossible (pas forcément un échec) :', verifyErr);
-        }
+    setBtnLoading(btn, true, 'Enregistrement…');
+    m.lmBon = {nomClient,numCommande,sansReserve,reserves,sigClient,sigEntreprise,dateStr};
+    m.signature = {nom:nomClient, date:dateStr, heure:heureStr, dataUrl:sigClient, signedBy:currentUser.nom};
+    m.conforme = sansReserve;
+    // ★ Repère si CETTE mission (une fois sérialisée) approche/dépasse la
+    // limite de 50 000 caractères par cellule Google Sheets — cause fréquente
+    // d'un champ qui « disparaît » silencieusement au retour du serveur.
+    try {
+      const missionSize = JSON.stringify(m).length;
+      console.log('[LM] Taille de la mission sérialisée :', missionSize, 'caractères');
+      if(missionSize > 45000){
+        console.warn('[LM] ⚠️ Mission proche/au-delà de la limite de cellule Google Sheets (50 000 car.). ' +
+          'Risque réel que le bon Leroy Merlin (ou d\'autres champs) soit tronqué par le backend.');
       }
-      renderAll();
+    } catch(sizeErr){}
+    // ★ Marquer terminée si mode terminer
+    if(lmTerminerMode){
+      m.statut = 'termine';
+      m.completedBy = currentUser.nom;
+      m.completedAt = dateStr;
+      m.completedTime = heureStr;
+      addMissionHistory(m, 'Statut : → Terminée (Bon Leroy Merlin)');
+      notifyClientByEmail(m, 'termine');
     }
+    lmSaveOk = await withTimeout(saveMissionsToSheets([m.id]), 25000, 'Enregistrement');
+    lastDataHash = '';
+
+    // ★ VÉRIFICATION : on sait que certains backends Apps Script répondent
+    // "succès" même quand une écriture a échoué ou tronqué un champ (cellule
+    // trop grande, colonne non gérée, etc.). Comme c'est précisément le bon
+    // Leroy Merlin qui disparaissait côté admin sans aucune erreur signalée,
+    // on relit la mission depuis le serveur juste après l'envoi pour confirmer
+    // que le champ lmBon est bien revenu.
+    if(lmSaveOk){
+      try {
+        const checkRes = await withTimeout(fetch(SHEETS_URL + '?t=' + Date.now()), 15000, 'Vérification');
+        const checkData = JSON.parse(await checkRes.text());
+        const checkMissions = Array.isArray(checkData) ? checkData
+          : (checkData && Array.isArray(checkData.missions) ? checkData.missions : []);
+        const checkM = checkMissions.find(function(cm){ return String(cm.id) === String(m.id); });
+        if(!checkM || !checkM.lmBon){
+          console.error('[LM] ⚠️ Le serveur a confirmé la sauvegarde mais le bon n\'est PAS revenu au chargement. ' +
+            'Le backend (Apps Script / Google Sheets) ignore ou tronque probablement le champ "lmBon" — ' +
+            'à vérifier côté script serveur (colonne manquante ou cellule dépassant la limite de caractères). ' +
+            'Mission id:', m.id, '— mission relue du serveur:', checkM);
+          lmSaveOk = false;
+        } else {
+          console.log('[LM] ✅ Bon confirmé présent côté serveur après relecture.');
+          missions = checkMissions; // resynchroniser avec ce que le serveur a réellement retourné
+          snapshotBaselines(missions);
+        }
+      } catch(verifyErr){
+        console.warn('[LM] Vérification post-sauvegarde impossible (pas forcément un échec) :', verifyErr);
+      }
+    }
+    renderAll();
+
+    // ★ Le PDF est maintenant généré APRÈS l'enregistrement critique, en
+    // best-effort avec un délai maximum : s'il échoue ou traîne, l'enregistrement
+    // déjà fait côté serveur n'est pas remis en cause.
+    if(lmSaveOk){
+      setBtnLoading(btn, true, 'Génération du PDF…');
+      try {
+        await withTimeout(
+          generateLMBonPDF({nomClient,numCommande,sansReserve,reserves,sigClient:sigClientRaw,sigEntreprise:sigEntrepriseRaw,dateStr}),
+          20000, 'Génération PDF'
+        );
+        pdfOk = true;
+      } catch(pdfErr){
+        console.error('[LM] Le bon est enregistré côté serveur, mais le PDF de téléchargement a échoué :', pdfErr && pdfErr.message);
+        showToast('✅ Bon enregistré — ⚠️ le PDF n\'a pas pu être téléchargé (réessayez depuis la fiche mission)');
+      }
+    }
+  } catch(err){
+    // ★ Filet de sécurité : toute erreur inattendue (réseau, signature, etc.)
+    // est désormais affichée au monteur au lieu de disparaître silencieusement.
+    console.error('[LM] Erreur inattendue :', err && err.message, err);
+    showToast('⚠️ Erreur : ' + (err && err.message ? err.message : 'échec inconnu') + ' — réessayez');
   } finally {
     setBtnLoading(btn, false);
   }
   if(!lmSaveOk){
-    showToast('⚠️ Le bon a été généré mais n\'a pas pu être confirmé côté serveur — voir la console (F12) pour le détail, ou réessayez');
+    showToast('⚠️ Le bon n\'a pas pu être confirmé côté serveur — voir la console (F12) pour le détail, ou réessayez');
     return;
   }
   closeLMModal();
-  showToast(lmTerminerMode ? '✅ Intervention terminée ! Bon généré.' : '✅ Bon de réception Leroy Merlin généré !');
+  if(pdfOk){
+    showToast(lmTerminerMode ? '✅ Intervention terminée ! Bon généré.' : '✅ Bon de réception Leroy Merlin généré !');
+  }
+  // si pdfOk est false ici, le message d'avertissement dédié a déjà été affiché plus haut
 }
 
 // ★ Permet à l'admin de re-télécharger un bon LM déjà rempli par le monteur
