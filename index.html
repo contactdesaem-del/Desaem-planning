@@ -403,6 +403,7 @@ textarea.form-input{min-height:80px;resize:vertical}
             <div id="quick-search-results" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);background:white;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-height:60vh;overflow-y:auto;z-index:300;padding:.4rem"></div>
           </div>
         <div style="display:flex;gap:.3rem;align-items:center;flex-wrap:wrap">
+          <button class="filter-btn" id="team-panel-btn" onclick="openTeamPanel()" title="Ajouter ou retirer des monteurs, poseurs, admins et clients" style="display:none;font-size:.75rem;padding:.25rem .55rem">👥 Équipe &amp; clients</button>
           <button class="filter-btn active" id="view-btn-day" onclick="setView('day',this)" style="font-size:.75rem;padding:.25rem .55rem">Jour</button>
           <button class="filter-btn" id="view-btn-week" onclick="setView('week',this)" style="font-size:.75rem;padding:.25rem .55rem">Semaine</button>
           <button class="filter-btn" id="view-btn-month" onclick="setView('month',this)" style="font-size:.75rem;padding:.25rem .55rem">Mois</button>
@@ -632,6 +633,17 @@ textarea.form-input{min-height:80px;resize:vertical}
 </div>
 
 <!-- ══ MODAL EMPLOYE ════════════════════════════════════════════════════════════ -->
+<!-- ══ PANNEAU ÉQUIPE & CLIENTS (depuis le planning) ══ -->
+<div class="modal-overlay" id="team-panel-modal" style="display:none;z-index:190" onclick="if(event.target===this)closeTeamPanel()">
+  <div class="modal" style="max-width:640px;padding:0;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <strong style="font-size:1.05rem">👥 Équipe &amp; clients</strong>
+      <button class="modal-close" onclick="closeTeamPanel()">×</button>
+    </div>
+    <div id="team-panel-body" style="padding:1rem 1.25rem;overflow-y:auto;flex:1;min-height:0"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="emp-modal" style="display:none" onclick="if(event.target===this)closeEmpModal()">
   <div class="modal">
     <div class="modal-title">
@@ -641,7 +653,7 @@ textarea.form-input{min-height:80px;resize:vertical}
     <div class="form-group">
       <label class="form-label">Type de compte *</label>
       <select class="form-input" id="e-type" onchange="toggleEmpType(this.value)">
-        <option value="monteur">Monteur</option>
+        <option value="monteur">Monteur / Poseur</option>
         <option value="admin">Administrateur</option>
       </select>
     </div>
@@ -651,7 +663,8 @@ textarea.form-input{min-height:80px;resize:vertical}
     </div>
     <div class="form-group" id="e-role-group">
       <label class="form-label">Rôle</label>
-      <input class="form-input" id="e-role" placeholder="Monteur, Chef d'équipe...">
+      <input class="form-input" id="e-role" list="role-suggestions" placeholder="Monteur, Poseur, Chef d'équipe...">
+      <datalist id="role-suggestions"><option value="Monteur"><option value="Poseur"><option value="Chef d'équipe"></datalist>
     </div>
     <div class="form-group">
       <label class="form-label">Identifiant de connexion *</label>
@@ -1082,6 +1095,17 @@ let employees = [
 let missions = [];
 let nextMissionId = 1;
 let nextEmpId = 10;
+// Employés retirés de l'équipe : conservés (inactifs) côté serveur pour que la suppression
+// tienne après rechargement et ne ressuscite pas via la liste d'origine du fichier.
+let employeesDeleted = [];
+function ingestEmployeeTombstone(e){
+  const lg = (e.login||'').toLowerCase();
+  if(!lg || lg === 'hilel') return;
+  employees = employees.filter(x=>(x.login||'').toLowerCase() !== lg);
+  const ui = USERS.findIndex(u=>(u.login||'').toLowerCase() === lg);
+  if(ui > -1) USERS.splice(ui, 1);
+  if(!employeesDeleted.find(x=>(x.login||'').toLowerCase() === lg)) employeesDeleted.push(e);
+}
 
 // ★ RECHERCHE ROBUSTE D'UNE MISSION PAR ID
 // Google Sheets peut renvoyer les identifiants tantôt en nombre, tantôt en
@@ -1219,7 +1243,10 @@ async function saveMissionsToSheets(touchedMissionIds) {
 
     // ★ text/plain évite le preflight CORS tout en envoyant le JSON correctement
     // (no-cors empêche le body d'être lu par Apps Script)
-    const payload = JSON.stringify({action: 'save_missions', missions: missionsToSend, clients, employees});
+    // ★ On n'envoie plus clients/employees avec les missions : un téléphone dont la liste
+    // était périmée pouvait, en terminant une mission, réécrire l'équipe ou les clients
+    // et faire revenir un monteur supprimé (ou effacer un ajout récent).
+    const payload = JSON.stringify({action: 'save_missions', missions: missionsToSend});
     const saveRes = await fetch(SHEETS_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain'},
@@ -1278,6 +1305,7 @@ async function loadMissionsFromSheets() {
       if(Array.isArray(data.employees) && data.employees.length > 0){
         // Fusionner sans écraser les IDs statiques
         data.employees.forEach(function(e){
+          if(e && e.deleted){ ingestEmployeeTombstone(e); return; }
           const eLogin = (e.login||'').toLowerCase();
           const existing = employees.find(emp=>(emp.login||'').toLowerCase()===eLogin);
           if(existing){
@@ -1453,6 +1481,7 @@ document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key===
       if(Array.isArray(data.employees) && data.employees.length > 0){
         // ★ Fusionner par login — ne jamais écraser les IDs statiques
         data.employees.forEach(function(e){
+          if(e && e.deleted){ ingestEmployeeTombstone(e); return; }
           const eLogin = (e.login||'').toLowerCase();
           const existing = employees.find(emp=>(emp.login||'').toLowerCase()===eLogin);
           if(existing){
@@ -2022,6 +2051,7 @@ function changeMonth(dir){
 }
 
 function renderCalendar(){
+  refreshTeamPanelButton();
   renderMiniCal(); // Sync mini calendrier
   const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 
@@ -3953,6 +3983,7 @@ async function loadEmployees(){
       // ★ NE PAS remplacer employees[] si les données Sheets ont des IDs différents
       // Fusionner par LOGIN (clé stable) en préservant les IDs statiques
       data.forEach(function(e){
+        if(e && e.deleted){ ingestEmployeeTombstone(e); return; }
         const eLogin = (e.login||'').toLowerCase();
         const existing = employees.find(emp=>(emp.login||'').toLowerCase()===eLogin);
         if(existing){
@@ -3980,13 +4011,16 @@ async function loadEmployees(){
 
 async function saveEmployeesToSheets(){
   try {
-    await fetch(SHEETS_URL, {
+    const res = await fetch(SHEETS_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain'},
-      body: JSON.stringify({action: 'save_employees', employees, clients, missions})
+      body: JSON.stringify({action: 'save_employees', employees: employees.concat(employeesDeleted)})
     });
+    const txt = await res.text();
+    if(!res.ok || /"?error"?\s*:/i.test(txt)){ console.error('[Sheets] Employees refusés :', txt.slice(0,200)); return false; }
     console.log('[Sheets] Employees sauvegardés ✅');
-  } catch(e) { console.log('[Sheets] Erreur save employees:', e.message); }
+    return true;
+  } catch(e) { console.log('[Sheets] Erreur save employees:', e.message); return false; }
 }
 
 // ══ CONGÉS / ABSENCES DES MONTEURS ═══════════════════════════════════════════
@@ -4166,22 +4200,27 @@ async function saveEmp(btn){
 
   setBtnLoading(btn, true, 'Ajout…');
   try {
-    const newId = nextEmpId++;
+    // Un ancien membre retiré avec le même identifiant : on le rétablit (mêmes missions passées)
+    const tomb = employeesDeleted.find(x=>(x.login||'').toLowerCase()===login);
+    if(tomb) employeesDeleted = employeesDeleted.filter(x=>x!==tomb);
+    const maxUsed = Math.max(nextEmpId, 10, ...employees.map(x=>(parseInt(x.id)||0)+1), ...employeesDeleted.map(x=>(parseInt(x.id)||0)+1));
+    const newId = tomb ? tomb.id : maxUsed;
+    nextEmpId = Math.max(nextEmpId, newId + 1);
     if(type==='admin'){
       const newAdmin={id:newId, login, pass, nom:nom.split(' ')[0], role:'admin', isAdmin:true, actif:true};
       // Add to USERS for immediate login availability
       USERS.push({...newAdmin});
       // Add to employees so it persists via Sheets
       employees.push({id:newId, nom, role:'Administrateur', login, pass, actif:true, isAdmin:true});
-      await saveEmployeesToSheets();
-      showToast('✅ Administrateur ajouté ! Il peut maintenant se connecter.');
+      const okA = await saveEmployeesToSheets();
+      showToast(okA ? '✅ Administrateur ajouté ! Il peut maintenant se connecter.' : '⚠️ Ajouté ici mais non enregistré sur le serveur — réessayez');
     } else {
       const newEmp={id:newId, nom, role, login, pass, actif:true, isAdmin:false};
       employees.push(newEmp);
       // Also add to USERS so login works immediately
       USERS.push({id:newId, login, pass, nom:nom.split(' ')[0], role, isAdmin:false});
-      await saveEmployeesToSheets();
-      showToast('✅ Monteur ajouté !');
+      const okM = await saveEmployeesToSheets();
+      showToast(okM ? '✅ ' + nom + ' ajouté à l\'équipe !' : '⚠️ Ajouté ici mais non enregistré sur le serveur — réessayez');
     }
   } finally {
     setBtnLoading(btn, false);
@@ -4190,12 +4229,31 @@ async function saveEmp(btn){
   renderEmployes();
 }
 
+function upcomingMissionsOf(id){
+  const t = new Date(), p = function(n){ return String(n).padStart(2,'0'); };
+  const today = t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate());
+  return missions.filter(function(m){
+    return m.statut!=='annule' && m.statut!=='termine' && m.date >= today &&
+           (m.monteurs||[]).some(function(x){ return String(x)===String(id); });
+  }).length;
+}
+function tombstoneOf(e, isAdmin){
+  return {id:e.id, nom:e.nom, role:e.role, login:e.login, actif:false, deleted:true, isAdmin:!!isAdmin};
+}
 async function removeEmp(id){
-  if(!confirm('Retirer cet employé ?'))return;
-  employees=employees.filter(e=>e.id!==id);
-  await saveEmployeesToSheets();
+  const e = employees.find(x=>String(x.id)===String(id));
+  if(!e) return;
+  const up = upcomingMissionsOf(id);
+  if(!confirm('Retirer ' + e.nom + ' de l\'équipe ?\n\n• Il ne pourra plus se connecter.\n• Ses missions passées restent dans le planning.' +
+      (up ? '\n\n⚠️ ' + up + ' mission' + (up>1?'s':'') + ' à venir lui ' + (up>1?'sont':'est') + ' encore assignée' + (up>1?'s':'') + ' : pensez à ' + (up>1?'les':'la') + ' réassigner.' : '') +
+      '\n\n(Pour le mettre simplement en pause, utilisez ⏸️ « Désactiver ».)')) return;
+  employees = employees.filter(x=>String(x.id)!==String(id));
+  const ui = USERS.findIndex(u=>String(u.id)===String(id));
+  if(ui > -1 && (USERS[ui].login||'').toLowerCase() !== 'hilel') USERS.splice(ui,1);
+  if(!employeesDeleted.find(x=>(x.login||'').toLowerCase()===(e.login||'').toLowerCase())) employeesDeleted.push(tombstoneOf(e, false));
+  const ok = await saveEmployeesToSheets();
   renderEmployes();
-  showToast('Employé retiré');
+  showToast(ok ? e.nom + ' retiré de l\'équipe' : '⚠️ Retiré ici mais non enregistré sur le serveur — réessayez');
 }
 
 async function removeAdmin(id){
@@ -4203,15 +4261,14 @@ async function removeAdmin(id){
   const admin = USERS.find(u=>u.id===id);
   if(!admin){return;}
   if(admin.login.toLowerCase()==='hilel'){showToast('⛔ Impossible de supprimer le compte principal');return;}
-  if(!confirm('Supprimer l\'admin ' + admin.nom + ' ?'))return;
-  // Remove from USERS
+  if(!confirm('Supprimer l\'admin ' + admin.nom + ' ?\n\nIl ne pourra plus se connecter.'))return;
   const idx = USERS.findIndex(u=>u.id===id);
   if(idx>-1) USERS.splice(idx,1);
-  // Remove from employees if present
   employees = employees.filter(e=>e.id!==id);
-  await saveEmployeesToSheets();
+  if(!employeesDeleted.find(x=>(x.login||'').toLowerCase()===admin.login.toLowerCase())) employeesDeleted.push(tombstoneOf(admin, true));
+  const ok = await saveEmployeesToSheets();
   renderEmployes();
-  showToast('Administrateur supprimé');
+  showToast(ok ? 'Administrateur supprimé' : '⚠️ Supprimé ici mais non enregistré sur le serveur — réessayez');
 }
 
 async function toggleEmpActive(id){
@@ -4370,6 +4427,78 @@ function handlePaste(e, el){
   el.value = cur.substring(0,s) + text + cur.substring(en);
   el.selectionStart = el.selectionEnd = s + text.length;
 }
+
+// ══ PANNEAU ÉQUIPE & CLIENTS (accessible depuis le planning) ═══════════════════
+// Réutilise les fenêtres et fonctions existantes (ajout, retrait, pause) ; ce panneau
+// ne fait que les rendre accessibles sans quitter le planning.
+function _esc(v){ return String(v==null?'':v).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function refreshTeamPanelButton(){
+  var b = document.getElementById('team-panel-btn');
+  if(b) b.style.display = (currentUser && currentUser.isAdmin) ? '' : 'none';
+}
+function openTeamPanel(){
+  if(!currentUser || !currentUser.isAdmin) return;
+  renderTeamPanel();
+  document.getElementById('team-panel-modal').style.display = 'flex';
+}
+function closeTeamPanel(){ document.getElementById('team-panel-modal').style.display = 'none'; }
+function renderTeamPanel(){
+  var el = document.getElementById('team-panel-body');
+  if(!el) return;
+  var row = function(avatarBg, initial, title, sub, actions, dim){
+    return '<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem 0;border-bottom:1px solid var(--border);' + (dim ? 'opacity:.55' : '') + '">' +
+      '<div style="width:34px;height:34px;border-radius:50%;background:' + avatarBg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;flex-shrink:0">' + _esc(initial) + '</div>' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + title + '</div>' +
+      '<div style="font-size:.75rem;color:var(--grey);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + sub + '</div></div>' +
+      '<div style="display:flex;gap:.3rem;flex-shrink:0">' + actions + '</div></div>';
+  };
+  var ini = function(n){ return String(n||'?').trim().split(/\s+/).map(function(w){ return w.charAt(0); }).join('').slice(0,2).toUpperCase(); };
+  var h = '';
+  // — Équipe
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.25rem"><strong>👷 Équipe</strong>' +
+       '<button class="btn btn-primary btn-sm" onclick="openEmpModal()">+ Ajouter un membre</button></div>';
+  var admins = USERS.filter(function(u){ return u.isAdmin; });
+  admins.forEach(function(a){
+    var canDel = isHilel() && (a.login||'').toLowerCase() !== 'hilel';
+    h += row('var(--copper-dk)', ini(a.nom), _esc(a.nom) + ' <span class="badge badge-orange" style="font-size:.65rem">Admin</span>', '@' + _esc(a.login),
+      canDel ? '<button class="btn btn-danger btn-sm" title="Supprimer cet admin" onclick="removeAdmin(' + a.id + ')">🗑️</button>' : '', false);
+  });
+  var staff = employees.filter(function(e){ return !e.isAdmin; });
+  staff.forEach(function(e){
+    var off = e.actif === false;
+    h += row(off ? '#aaa' : 'var(--copper)', ini(e.nom),
+      _esc(e.nom) + (off ? ' <span class="badge badge-grey" style="font-size:.65rem">Désactivé</span>' : ''),
+      _esc(e.role||'Monteur') + ' · @' + _esc(e.login) + (upcomingMissionsOf(e.id) ? ' · ' + upcomingMissionsOf(e.id) + ' mission(s) à venir' : ''),
+      '<button class="btn btn-ghost btn-sm" title="' + (off ? 'Réactiver' : 'Mettre en pause') + '" onclick="toggleEmpActive(' + e.id + ')">' + (off ? '✅' : '⏸️') + '</button>' +
+      '<button class="btn btn-danger btn-sm" title="Retirer de l\'équipe" onclick="removeEmp(' + e.id + ')">🗑️</button>', off);
+  });
+  if(!staff.length) h += '<p style="color:var(--grey);font-size:.85rem;padding:.5rem 0">Aucun monteur / poseur pour le moment.</p>';
+  // — Clients
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin:1.25rem 0 .25rem"><strong>🏢 Clients</strong>' +
+       '<button class="btn btn-primary btn-sm" onclick="openClientModal()">+ Ajouter un client</button></div>';
+  clients.forEach(function(c){
+    var nom = c.nom || c.name || '(sans nom)';
+    var n = missions.filter(function(m){ return m.clientId === c.id; }).length;
+    var off = c.actif === false;
+    h += row('var(--info)', (nom.charAt(0)||'?').toUpperCase(),
+      _esc(nom) + (off ? ' <span class="badge badge-grey" style="font-size:.65rem">Désactivé</span>' : ''),
+      '@' + _esc(c.login||'') + ' · ' + n + ' mission(s)',
+      '<button class="btn btn-ghost btn-sm" title="Modifier" onclick="openClientModal(' + c.id + ')">✏️</button>' +
+      '<button class="btn btn-danger btn-sm" title="Supprimer ce client" onclick="deleteClient(' + c.id + ')">🗑️</button>', off);
+  });
+  if(!clients.length) h += '<p style="color:var(--grey);font-size:.85rem;padding:.5rem 0">Aucun client pour le moment.</p>';
+  el.innerHTML = h;
+}
+// Après chaque ajout / retrait / pause, on met à jour le panneau s'il est ouvert
+['saveEmp','removeEmp','removeAdmin','toggleEmpActive','saveClient','deleteClient','toggleClientActive'].forEach(function(name){
+  var orig = window[name];
+  if(typeof orig !== 'function') return;
+  window[name] = async function(){
+    var r = await orig.apply(this, arguments);
+    try { var m = document.getElementById('team-panel-modal'); if(m && m.style.display !== 'none') renderTeamPanel(); } catch(e){}
+    return r;
+  };
+});
 
 // ══ COLLER (Ctrl+V) DES FICHIERS / CAPTURES D'ÉCRAN ═══════════════════════════
 // En plus du glisser-déposer : on peut coller un fichier copié depuis l'Explorateur,
@@ -4856,6 +4985,7 @@ function startAutoRefresh(){
         // Fusionner employees sans écraser les IDs statiques
         if(Array.isArray(data.employees) && data.employees.length > 0){
           data.employees.forEach(function(e){
+          if(e && e.deleted){ ingestEmployeeTombstone(e); return; }
             const eLogin = (e.login||'').toLowerCase();
             const existing = employees.find(emp=>(emp.login||'').toLowerCase()===eLogin);
             if(existing){ existing.pass=e.pass||existing.pass; existing.actif=e.actif!==false; }
@@ -5776,18 +5906,28 @@ function populateClientDropdown(selectedId=null){
     clients.map(c=>`<option value="${c.id}" ${c.id===selectedId?'selected':''}>${c.nom}</option>`).join('');
 }
 
-async function saveClientsToSheets(){
+async function saveClientsToSheets(allowEmpty){
   // localStorage immédiat (ce navigateur, hors ligne)
   try { localStorage.setItem('desaem_clients', JSON.stringify(clients)); } catch(e){}
-  // Sauvegarde Sheets via le payload complet (missions+clients+employees)
-  const ok = await saveMissionsToSheets([]); // [] = aucune mission modifiée ici
+  // Garde-fou : une liste vide n'est envoyée que si on vient de supprimer le DERNIER client
+  if(!clients.length && !allowEmpty){ console.warn('[Clients] Liste vide : sauvegarde ignorée par sécurité'); return false; }
+  let ok = false;
+  try {
+    const res = await fetch(SHEETS_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain'},
+      body: JSON.stringify({action: 'save_clients', clients})
+    });
+    const txt = await res.text();
+    ok = res.ok && !/"?error"?\s*:/i.test(txt);
+  } catch(e){ console.warn('[Clients] Erreur réseau :', e.message); }
   if(ok){
     console.log('[Clients] Sauvegardés sur Sheets (' + clients.length + ' clients)');
-    // Forcer un rechargement pour que tous les appareils voient la mise à jour
     lastDataHash = '';
   } else {
     console.log('[Clients] Sheets indisponible — sauvegardé en local uniquement');
   }
+  return ok;
 }
 
 async function loadClientsFromSheets(){
@@ -5918,7 +6058,7 @@ async function deleteClient(id){
   clients = clients.filter(c=>c.id!==id);
   const uIdx = USERS.findIndex(u=>u.id===id);
   if(uIdx>-1) USERS.splice(uIdx,1);
-  await saveClientsToSheets();
+  await saveClientsToSheets(true);
   renderClients();
   showToast('Client supprimé');
 }
