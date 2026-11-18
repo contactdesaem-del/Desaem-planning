@@ -50,7 +50,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--light);color:var(--dark);
 .content{padding:1rem;flex:1;min-width:0;transition:all .1s}
 .content.planning-active{padding:0 !important;max-width:100% !important;width:100% !important;margin:0 !important}
 .tab-content#tab-planning{padding:0}
-#tab-planning .cal-header-bar{padding:.5rem 1rem;background:var(--white);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
+#tab-planning .cal-header-bar{padding:.5rem 1rem;background:var(--white);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:30}
 
 /* CARDS */
 .card{background:var(--white);border-radius:12px;border:1px solid var(--border);padding:1.25rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(36,33,29,.04)}
@@ -288,8 +288,8 @@ textarea.form-input{min-height:80px;resize:vertical}
   }
   #tab-planning .cal-header-bar > div:last-child::-webkit-scrollbar{display:none}
   #tab-planning .filter-btn{flex-shrink:0}
-  #planning-search{width:90px !important}
-  #planning-search:focus{width:130px !important}
+  #tab-planning .planning-search-wrap{flex:1 1 100% !important;max-width:100% !important}
+  #planning-search{width:100% !important}
   .month-cell{min-height:64px}
   .topbar-user{display:none} /* le nom prend trop de place à côté de la cloche sur petit écran */
 }
@@ -359,9 +359,16 @@ textarea.form-input{min-height:80px;resize:vertical}
         <div class="card" id="ca-card" style="display:none">
           <div class="card-title">💰 Chiffre d'affaires</div>
           <div class="filter-row">
-            <button class="filter-btn active" onclick="setCAPeriod('mois',this)">Ce mois</button>
+            <button class="filter-btn" onclick="setCAPeriod('semaine',this)">Semaine</button>
+            <button class="filter-btn active" onclick="setCAPeriod('mois',this)">Mois</button>
             <button class="filter-btn" onclick="setCAPeriod('trimestre',this)">Trimestre</button>
             <button class="filter-btn" onclick="setCAPeriod('annee',this)">Année</button>
+            <button class="filter-btn" onclick="setCAPeriod('toutes',this)">Par année</button>
+          </div>
+          <div id="ca-nav" style="display:flex;align-items:center;justify-content:center;gap:.6rem;margin:.2rem 0 .4rem">
+            <button class="cal-nav" onclick="shiftCA(-1)" aria-label="Période précédente">&#8249;</button>
+            <span id="ca-period-label" style="font-weight:600;font-size:.85rem;min-width:150px;text-align:center"></span>
+            <button class="cal-nav" onclick="shiftCA(1)" aria-label="Période suivante">&#8250;</button>
           </div>
           <div style="text-align:center;margin:.5rem 0">
             <span style="font-size:2rem;font-weight:700;color:var(--copper)" id="ca-val">0 €</span>
@@ -369,6 +376,7 @@ textarea.form-input{min-height:80px;resize:vertical}
           </div>
           <div class="bar-chart" id="ca-bars"></div>
           <div style="display:flex;gap:4px" id="ca-bar-labels"></div>
+          <div id="ca-detail" style="margin-top:.9rem"></div>
         </div>
         <div class="card">
           <div class="card-title">📅 Prochaines missions</div>
@@ -387,20 +395,19 @@ textarea.form-input{min-height:80px;resize:vertical}
           <button class="cal-nav" onclick="changeMonth(1)" style="font-size:1.1rem;padding:.2rem .55rem">&#8250;</button>
           <span style="font-weight:700;font-size:.95rem;min-width:100px" id="cal-month-label"></span>
         </div>
+          <!-- Barre de recherche centrée -->
+          <div class="planning-search-wrap" style="position:relative;flex:1 1 260px;max-width:520px;margin:0 auto">
+            <input id="planning-search" placeholder="Rechercher une mission (client, adresse, tél, n° facture...)"
+              style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:24px;padding:.55rem 1rem .55rem 2.1rem;font-size:.95rem;font-family:inherit;outline:none;background:var(--light) url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22><path fill=%22%23888%22 d=%22M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z%22 stroke=%22%23888%22 stroke-width=%222%22/></svg>') no-repeat .8rem center;background-size:15px"
+              oninput="doQuickSearch(this.value)">
+            <div id="quick-search-results" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);background:white;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-height:60vh;overflow-y:auto;z-index:300;padding:.4rem"></div>
+          </div>
         <div style="display:flex;gap:.3rem;align-items:center;flex-wrap:wrap">
           <button class="filter-btn active" id="view-btn-day" onclick="setView('day',this)" style="font-size:.75rem;padding:.25rem .55rem">Jour</button>
           <button class="filter-btn" id="view-btn-week" onclick="setView('week',this)" style="font-size:.75rem;padding:.25rem .55rem">Semaine</button>
           <button class="filter-btn" id="view-btn-month" onclick="setView('month',this)" style="font-size:.75rem;padding:.25rem .55rem">Mois</button>
           <button class="filter-btn" id="view-btn-year" onclick="setView('year',this)" style="font-size:.75rem;padding:.25rem .55rem">Ann&#233;e</button>
           <button class="filter-btn" id="view-btn-list" onclick="setView('list',this)" style="font-size:.75rem;padding:.25rem .55rem">Liste</button>
-          <div style="position:relative">
-            <input id="planning-search" placeholder="Rechercher..."
-              style="border:1px solid var(--border);border-radius:20px;padding:.25rem .75rem .25rem 1.5rem;font-size:.8rem;font-family:inherit;outline:none;width:130px;transition:width .2s;background:var(--light) url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22><path fill=%22%23888%22 d=%22M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z%22 stroke=%22%23888%22 stroke-width=%222%22/></svg>') no-repeat .4rem center"
-              oninput="doQuickSearch(this.value)"
-              onfocus="this.style.width='180px'"
-              onblur="if(!this.value)this.style.width='130px'">
-            <div id="quick-search-results" style="display:none;position:absolute;right:0;top:110%;background:white;border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);width:280px;max-height:300px;overflow-y:auto;z-index:100;padding:.4rem"></div>
-          </div>
         </div>
       </div>
       <!-- Planning layout : mini calendrier + vue principale -->
@@ -593,7 +600,7 @@ textarea.form-input{min-height:80px;resize:vertical}
             ondragover="event.preventDefault();event.stopPropagation();this.style.borderColor='var(--copper)';this.style.background='var(--copper-lt)'"
             ondragleave="event.preventDefault();event.stopPropagation();this.style.borderColor='var(--border)';this.style.background='transparent'"
             ondrop="handleFileDrop(event,this)">
-            <div style="font-size:.82rem;color:var(--grey)">📎 Glissez un fichier ici, ou cliquez pour choisir</div>
+            <div style="font-size:.82rem;color:var(--grey)">📎 Glissez un fichier ici, collez-le (Ctrl+V) ou cliquez pour choisir</div>
           </div>
           <input class="form-input" type="file" id="m-fichier" accept=".pdf,.jpg,.png,.jpeg" multiple onchange="previewFiles(this)" style="display:none">
           <div id="m-fichier-preview" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem"></div>
@@ -725,15 +732,18 @@ textarea.form-input{min-height:80px;resize:vertical}
 
 <!-- ══ MODAL BON RÉCEPTION LEROY MERLIN ══════════════════════════════════════ -->
 <div class="modal-overlay" id="lm-modal" style="display:none">
-  <div class="modal" style="max-width:560px;padding:0;overflow:hidden">
-    <div style="background:#007A33;color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+  <div class="modal" style="max-width:560px;padding:0;overflow:hidden;display:flex;flex-direction:column">
+    <div style="background:#007A33;color:white;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
       <div style="display:flex;align-items:center;gap:.75rem">
         <div style="font-size:1rem;font-weight:900;color:white;line-height:1.1">LEROY<br>MERLIN</div>
         <span id="lm-modal-title" style="font-size:.88rem;font-weight:600;opacity:.95">📋 Bon de Réception de Travaux</span>
       </div>
       <button class="modal-close" onclick="closeLMModal()" style="color:white">×</button>
     </div>
-    <div style="padding:1rem;max-height:85vh;overflow-y:auto">
+    <!-- ★ Zone scrollable séparée du bouton : le bouton "Valider" reste visible
+         en permanence (en bas, hors zone de défilement) au lieu d'être tout en
+         bas du contenu, difficile à atteindre une fois le clavier ouvert. -->
+    <div style="padding:1rem;overflow-y:auto;flex:1;min-height:0">
 
       <!-- Champs à remplir -->
       <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:.85rem;margin-bottom:.75rem">
@@ -788,10 +798,11 @@ textarea.form-input{min-height:80px;resize:vertical}
         En cas de réserves, une réunion de chantier sera organisée. L'installation a été réalisée dans le respect des normes en vigueur.
       </p>
 
-      <div class="form-actions">
-        <button id="lm-validate-btn" class="btn btn-primary" style="flex:1;background:#007A33;border-color:#007A33" onclick="saveLMBon(this)">✅ Valider et générer le bon</button>
-        <button class="btn btn-ghost" onclick="closeLMModal()">Annuler</button>
-      </div>
+    </div>
+    <!-- ★ Barre d'action fixe, toujours visible, en dehors de la zone qui défile -->
+    <div class="form-actions" style="flex-shrink:0;padding:.75rem 1rem;border-top:1px solid var(--border);background:var(--white);margin:0">
+      <button id="lm-validate-btn" class="btn btn-primary" style="flex:1;background:#007A33;border-color:#007A33" onclick="saveLMBon(this)">✅ Valider et générer le bon</button>
+      <button class="btn btn-ghost" onclick="closeLMModal()">Annuler</button>
     </div>
   </div>
 </div>
@@ -1130,8 +1141,14 @@ function mergeMissionFields(fresh, local, baseJson){
       const removed = new Set(bv.filter(function(x){ return !localSet.has(JSON.stringify(x)); }).map(function(x){ return JSON.stringify(x); }));
       const kept = fresh[k].filter(function(x){ return !removed.has(JSON.stringify(x)); });
       const keptSet = new Set(kept.map(function(x){ return JSON.stringify(x); }));
-      added.forEach(function(x){ if(!keptSet.has(JSON.stringify(x))) kept.push(x); });
-      out[k] = kept;
+      const fresh_added = added.filter(function(x){ return !keptSet.has(JSON.stringify(x)); });
+      if(k === 'history'){
+        // l'historique s'affiche du plus récent au plus ancien (addMissionHistory
+        // insère en tête) : les nouvelles lignes vont donc EN HAUT, pas en bas
+        out[k] = fresh_added.concat(kept).slice(0, 50);
+      } else {
+        out[k] = kept.concat(fresh_added);
+      }
     } else if(lv === undefined){
       delete out[k];
     } else {
@@ -1817,33 +1834,95 @@ function renderDashboard(){
   el.innerHTML = upcoming.map(m=>missionCard(m,true)).join('');
 }
 
+// ★ Chiffre d'affaires : semaine / mois / trimestre / année / par année,
+// navigable (‹ ›) et avec le détail ligne par ligne sous le graphique.
+let caOffset = 0;
+const CA_MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const CA_MOIS_COURT = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+function caParse(m){
+  if(!m || !m.date) return null;
+  const p = String(m.date).split('-');
+  if(p.length < 3) return null;
+  const d = new Date(+p[0], +p[1]-1, +p[2]);
+  return isNaN(d) ? null : d;
+}
+function caWeekStart(d){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
+function caIsoWeek(d){
+  const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
+  return Math.ceil(((t-new Date(Date.UTC(t.getUTCFullYear(),0,1)))/86400000+1)/7);
+}
+function caEuro(v){ return v.toLocaleString('fr-FR',{maximumFractionDigits:2})+' €'; }
+function caDM(d){ return d.getDate()+'/'+(d.getMonth()+1); }
+
 function renderCA(){
   const now = new Date();
-  let filtered=[], labels=[];
-  if(caPeriod==='mois'){
-    filtered=missions.filter(m=>{const d=new Date(m.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()&&m.statut!=='annule'});
-    for(let w=1;w<=4;w++){labels.push('S'+w);} 
-    const vals=[0,0,0,0];
-    filtered.forEach(m=>{const d=new Date(m.date);const w=Math.min(3,Math.floor((d.getDate()-1)/7));vals[w]+=(m.prix||0)});
-    renderBars(vals,labels);
-    document.getElementById('ca-val').textContent=(filtered.reduce((s,m)=>s+(m.prix||0),0)).toLocaleString('fr-FR')+' €';
+  const list = missions.filter(m=>m.statut!=='annule')
+    .map(m=>({d:caParse(m), p:parseFloat(m.prix)||0})).filter(x=>x.d);
+  let buckets = [], title = '';
+  const mk = (label, detail)=>({label:label, detail:detail, value:0, count:0});
+
+  if(caPeriod==='semaine'){
+    const ws = caWeekStart(new Date(now.getFullYear(), now.getMonth(), now.getDate()+caOffset*7));
+    const we = new Date(ws.getFullYear(), ws.getMonth(), ws.getDate()+6);
+    const jours = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+    for(let i=0;i<7;i++){ const dd=new Date(ws.getFullYear(),ws.getMonth(),ws.getDate()+i); buckets.push(mk(jours[i], jours[i]+' '+caDM(dd))); }
+    list.forEach(x=>{ const diff=Math.round((new Date(x.d.getFullYear(),x.d.getMonth(),x.d.getDate())-ws)/86400000); if(diff>=0&&diff<7){ buckets[diff].value+=x.p; buckets[diff].count++; } });
+    title = 'Semaine '+caIsoWeek(ws)+' · '+caDM(ws)+' → '+caDM(we);
+  } else if(caPeriod==='mois'){
+    const ref = new Date(now.getFullYear(), now.getMonth()+caOffset, 1);
+    const y = ref.getFullYear(), mo = ref.getMonth();
+    const first = new Date(y,mo,1), last = new Date(y,mo+1,0);
+    const idx = {};
+    for(let d=new Date(first); d<=last; d.setDate(d.getDate()+1)){
+      const ws = caWeekStart(d), key = ws.getTime();
+      if(!(key in idx)){
+        const we = new Date(ws.getFullYear(),ws.getMonth(),ws.getDate()+6);
+        idx[key] = buckets.length;
+        buckets.push(mk('S'+caIsoWeek(ws), 'Semaine '+caIsoWeek(ws)+' ('+caDM(ws<first?first:ws)+' → '+caDM(we>last?last:we)+')'));
+      }
+    }
+    list.forEach(x=>{ if(x.d.getFullYear()===y && x.d.getMonth()===mo){ const b=buckets[idx[caWeekStart(x.d).getTime()]]; b.value+=x.p; b.count++; } });
+    title = CA_MOIS[mo]+' '+y;
   } else if(caPeriod==='trimestre'){
-    const q=Math.floor(now.getMonth()/3);
-    const months=['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
-    labels=[months[q*3],months[q*3+1],months[q*3+2]];
-    const vals=[0,0,0];
-    missions.filter(m=>m.statut!=='annule').forEach(m=>{const d=new Date(m.date);if(Math.floor(d.getMonth()/3)===q&&d.getFullYear()===now.getFullYear()){vals[d.getMonth()-q*3]+=(m.prix||0)}});
-    renderBars(vals,labels);
-    document.getElementById('ca-val').textContent=vals.reduce((s,v)=>s+v,0).toLocaleString('fr-FR')+' €';
-  } else {
-    const months=['J','F','M','A','M','J','J','A','S','O','N','D'];
-    labels=months;
-    const vals=new Array(12).fill(0);
-    missions.filter(m=>m.statut!=='annule'&&new Date(m.date).getFullYear()===now.getFullYear()).forEach(m=>{vals[new Date(m.date).getMonth()]+=(m.prix||0)});
-    renderBars(vals,labels);
-    document.getElementById('ca-val').textContent=vals.reduce((s,v)=>s+v,0).toLocaleString('fr-FR')+' €';
+    const qi = now.getFullYear()*4 + Math.floor(now.getMonth()/3) + caOffset;
+    const y = Math.floor(qi/4), q = ((qi%4)+4)%4;
+    for(let i=0;i<3;i++){ buckets.push(mk(CA_MOIS_COURT[q*3+i], CA_MOIS[q*3+i]+' '+y)); }
+    list.forEach(x=>{ if(x.d.getFullYear()===y && Math.floor(x.d.getMonth()/3)===q){ const b=buckets[x.d.getMonth()-q*3]; b.value+=x.p; b.count++; } });
+    title = 'T'+(q+1)+' '+y;
+  } else if(caPeriod==='annee'){
+    const y = now.getFullYear()+caOffset;
+    for(let i=0;i<12;i++){ buckets.push(mk(CA_MOIS_COURT[i].charAt(0), CA_MOIS[i]+' '+y)); }
+    list.forEach(x=>{ if(x.d.getFullYear()===y){ const b=buckets[x.d.getMonth()]; b.value+=x.p; b.count++; } });
+    title = String(y);
+  } else { // 'toutes' : un total par année
+    let yMin = now.getFullYear(), yMax = now.getFullYear();
+    list.forEach(x=>{ yMin=Math.min(yMin,x.d.getFullYear()); yMax=Math.max(yMax,x.d.getFullYear()); });
+    for(let y=yMin;y<=yMax;y++){ buckets.push(mk(String(y), 'Année '+y)); }
+    list.forEach(x=>{ const b=buckets[x.d.getFullYear()-yMin]; b.value+=x.p; b.count++; });
+    title = 'Toutes les années';
   }
+
+  const total = buckets.reduce((a,b)=>a+b.value,0);
+  const totalCount = buckets.reduce((a,b)=>a+b.count,0);
+  document.getElementById('ca-val').textContent = caEuro(total);
+  document.getElementById('ca-period-label').textContent = title;
+  document.getElementById('ca-nav').style.display = caPeriod==='toutes' ? 'none' : 'flex';
+  renderBars(buckets.map(b=>b.value), buckets.map(b=>b.label));
+
+  const rows = buckets.map(b=>
+    '<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.82rem">'+
+      '<span style="flex:1">'+b.detail+'</span>'+
+      '<span style="color:var(--grey);font-size:.75rem">'+b.count+' mission'+(b.count>1?'s':'')+'</span>'+
+      '<strong style="min-width:90px;text-align:right;color:'+(b.value>0?'var(--copper-dk)':'var(--grey)')+'">'+caEuro(b.value)+'</strong>'+
+    '</div>').join('');
+  document.getElementById('ca-detail').innerHTML = rows +
+    '<div style="display:flex;gap:.5rem;padding:.5rem 0 0;font-size:.85rem;font-weight:700"><span style="flex:1">Total</span>'+
+    '<span style="color:var(--grey);font-weight:400;font-size:.75rem">'+totalCount+' mission'+(totalCount>1?'s':'')+'</span>'+
+    '<span style="min-width:90px;text-align:right">'+caEuro(total)+'</span></div>';
 }
+
+function shiftCA(dir){ caOffset += dir; renderCA(); }
 
 function renderBars(vals,labels){
   const max=Math.max(...vals,1);
@@ -1852,7 +1931,7 @@ function renderBars(vals,labels){
 }
 
 function setCAPeriod(p,btn){
-  caPeriod=p;document.querySelectorAll('#ca-card .filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCA();
+  caPeriod=p;caOffset=0;document.querySelectorAll('#ca-card .filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderCA();
 }
 
 // ══ PLANNING ══════════════════════════════════════════════════════════════════
@@ -2480,13 +2559,28 @@ function renderWeekView(){
       };
 
       // ── DRAG & DROP with 15min snap ──────────────────────────────────────
-      function startDrag(clientY, isTouch){
+      function startDrag(clientY, isTouch, clientX){
         if(!currentUser.isAdmin) return;
         beginInteraction();
         mDiv._dragging = false;
         var origTop = topPx;
         var startY = clientY;
         var duration = endMins - startMins;
+        // ★ Glisser entre les jours : colonnes de la semaine + colonne d'origine
+        var startX = clientX || 0;
+        var origDate = dateStr;
+        var origColEl = mDiv.parentNode;
+        var dayCols = Array.prototype.filter.call(origColEl.parentNode.children, function(c){ return c.dataset && c.dataset.date; });
+        var targetDate = dateStr;
+        function colAt(cx){ // colonne la plus proche de la position horizontale du pointeur
+          var best = origColEl, bestD = 1e9;
+          dayCols.forEach(function(c){
+            var r = c.getBoundingClientRect();
+            var d = cx < r.left ? r.left - cx : (cx > r.right ? cx - r.right : 0);
+            if(d < bestD){ bestD = d; best = c; }
+          });
+          return best;
+        }
 
         // Drag preview tooltip
         var tooltip = document.createElement('div');
@@ -2500,9 +2594,9 @@ function renderWeekView(){
         mDiv.style.transform = 'scale(1.02)';
         mDiv.style.transition = 'none';
 
-        function onMove(cy){
+        function onMove(cy, cx){
           var dy = cy - startY;
-          if(Math.abs(dy) > 3) mDiv._dragging = true;
+          if(Math.abs(dy) > 3 || Math.abs((cx === undefined ? startX : cx) - startX) > 3) mDiv._dragging = true;
 
           // Snap to 15min increments
           var SNAP_PX = (SNAP / 30) * SLOT_H;
@@ -2511,6 +2605,12 @@ function renderWeekView(){
           snappedTop = Math.max(0, Math.min(snappedTop, totalH - heightPx));
 
           mDiv.style.top = snappedTop + 'px';
+
+          // Colonne (jour) sous le pointeur : la mission s'y déplace visuellement
+          var tc = colAt(cx === undefined ? startX : cx);
+          targetDate = tc.dataset.date;
+          var shiftX = tc.getBoundingClientRect().left - origColEl.getBoundingClientRect().left;
+          mDiv.style.transform = 'translateX(' + shiftX + 'px) scale(1.02)';
 
           // Calculate new time
           var slotIdx = snappedTop / SLOT_H;
@@ -2525,17 +2625,17 @@ function renderWeekView(){
             +' – '+String(Math.min(23,newEndH)).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
 
           // Update tooltip
-          tooltip.textContent = timeStr;
+          tooltip.textContent = (targetDate !== origDate ? dragDayLabel(targetDate) + ' · ' : '') + timeStr;
           tooltip.style.display = 'block';
           tooltip.style.left = (mDiv.getBoundingClientRect().left - 70) + 'px';
           tooltip.style.top = (mDiv.getBoundingClientRect().top) + 'px';
 
           // Update time shown in block
           mDiv.innerHTML = '<div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+m.client+'</div>'
-            + '<div style="opacity:.95;font-size:.65rem;background:rgba(0,0,0,.15);border-radius:2px;padding:0 .2rem">⏰ '+timeStr+'</div>';
+            + '<div style="opacity:.95;font-size:.65rem;background:rgba(0,0,0,.15);border-radius:2px;padding:0 .2rem">⏰ '+(targetDate !== origDate ? dragDayLabel(targetDate) + ' · ' : '')+timeStr+'</div>';
         }
 
-        function endDrag(cy){
+        function endDrag(cy, cx){
           endInteraction();
           tooltip.remove();
           mDiv.style.boxShadow = '0 1px 3px rgba(0,0,0,.2)';
@@ -2562,11 +2662,11 @@ function renderWeekView(){
 
             var mObj = findMission(mDiv.dataset.missionId);
             if(mObj){
-              mObj.heure = String(newH).padStart(2,'0')+':'+String(newM).padStart(2,'0');
-              mObj.heureFin = String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0');
-              saveMissionsToSheets([mObj.id]);
-              renderCalendar();
-              showToast('⏰ ' + mObj.heure + ' – ' + mObj.heureFin);
+              var dropCol = colAt(cx === undefined ? startX : cx);
+              // ★ date = jour de la colonne où elle est lâchée, heure = position verticale
+              moveMissionTo(mObj, dropCol.dataset.date,
+                String(newH).padStart(2,'0')+':'+String(newM).padStart(2,'0'),
+                String(newEndH).padStart(2,'0')+':'+String(newEndM).padStart(2,'0'));
             }
           }
           setTimeout(function(){ mDiv._dragging = false; }, 50);
@@ -2574,11 +2674,11 @@ function renderWeekView(){
 
         // Mouse
         if(!isTouch){
-          function onMouseMove(e){ onMove(e.clientY); }
+          function onMouseMove(e){ onMove(e.clientY, e.clientX); }
           function onMouseUp(e){
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
-            endDrag(e.clientY);
+            endDrag(e.clientY, e.clientX);
           }
           document.addEventListener('mousemove', onMouseMove);
           document.addEventListener('mouseup', onMouseUp);
@@ -2587,20 +2687,20 @@ function renderWeekView(){
         else {
           function onTouchMove(e){
             e.preventDefault();
-            onMove(e.touches[0].clientY);
+            onMove(e.touches[0].clientY, e.touches[0].clientX);
           }
           function onTouchEnd(e){
             mDiv.removeEventListener('touchmove', onTouchMove);
             mDiv.removeEventListener('touchend', onTouchEnd);
-            endDrag(e.changedTouches[0].clientY);
+            endDrag(e.changedTouches[0].clientY, e.changedTouches[0].clientX);
           }
           mDiv.addEventListener('touchmove', onTouchMove, {passive:false});
           mDiv.addEventListener('touchend', onTouchEnd);
         }
       }
 
-      mDiv.addEventListener('mousedown', function(e){ e.preventDefault(); startDrag(e.clientY, false); });
-      mDiv.addEventListener('touchstart', function(e){ startDrag(e.touches[0].clientY, true); }, {passive:true});
+      mDiv.addEventListener('mousedown', function(e){ e.preventDefault(); startDrag(e.clientY, false, e.clientX); });
+      mDiv.addEventListener('touchstart', function(e){ startDrag(e.touches[0].clientY, true, e.touches[0].clientX); }, {passive:true});
 
       // ── RESIZE (poignée en bas) — agrandir la mission change l'heure de fin ──
       if(currentUser.isAdmin){
@@ -3184,6 +3284,7 @@ function renderMonthView(){
     var cell = document.createElement('div');
     cell.className = 'month-cell';
     cell.style.cssText = 'background:white;padding:.25rem;cursor:pointer';
+    cell.dataset.date = dateStr;
     cell.onclick = (function(ds){ return function(e){
       if(!currentUser || !currentUser.isAdmin) return;
       console.log('[Planning-MONTH] case vide cliquée — date:', ds);
@@ -3200,7 +3301,8 @@ function renderMonthView(){
       var color = missionColor(m);
       mDiv.style.cssText = 'background:'+color+';color:white;border-radius:4px;padding:.15rem .35rem;font-size:.7rem;margin-bottom:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer';
       mDiv.textContent = (m.heure||'') + ' ' + m.client;
-      mDiv.onclick = (function(mid){ return function(e){ e.stopPropagation(); openDetailModal(mid); }; })(m.id);
+      mDiv.onclick = (function(mid, el){ return function(e){ e.stopPropagation(); if(el._dragging) return; openDetailModal(mid); }; })(m.id, mDiv);
+      enableMonthChipDrag(mDiv, m);
       cell.appendChild(mDiv);
     });
     if(dayMissions.length > 3){
@@ -4214,17 +4316,52 @@ function sendWhatsApp(id){
 }
 
 // ══ PASTE HANDLER ════════════════════════════════════════════════════════════
+// Convertit du HTML copié (Outlook, Word, web...) en texte brut PROPRE.
+// Outlook/Word glissent dans le presse-papiers des blocs <style>, des balises
+// <xml> et des commentaires conditionnels <!--[if gte mso 9]>…<![endif]-->.
+// L'ancienne version supprimait les balises mais gardait leur CONTENU, d'où
+// les « Normal 0 false 21 X-NONE … MsoNormalTable » collés dans la description.
+function htmlToCleanText(html){
+  // 1. ne garder que le fragment réellement copié
+  var f1 = html.indexOf('<!--StartFragment-->'), f2 = html.indexOf('<!--EndFragment-->');
+  if(f1 > -1 && f2 > f1) html = html.substring(f1 + 20, f2);
+  // 2. supprimer ce qui n'est pas du texte visible, CONTENU compris
+  html = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[[^>]*\]>/g, '')
+    .replace(/<(style|script|xml|head|title|template|noscript)\b[\s\S]*?<\/\1>/gi, '')
+    .replace(/<o:[^>]*>[\s\S]*?<\/o:[^>]*>/gi, '')
+    .replace(/<w:[^>]*>[\s\S]*?<\/w:[^>]*>/gi, '');
+  // 3. sauts de ligne pour les blocs
+  html = html
+    .replace(/<br[^>]*>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6]|table|blockquote)>/gi, '\n')
+    .replace(/<\/(td|th)>/gi, '\t');
+  // 4. retirer les balises restantes, décoder les entités (&nbsp; &amp;…)
+  var tmp = document.createElement('textarea');
+  tmp.innerHTML = html.replace(/<[^>]+>/g, '');
+  return tmp.value
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function handlePaste(e, el){
   e.preventDefault();
   var text = '';
+  var plain = '';
   if(e.clipboardData){
     var html = e.clipboardData.getData('text/html');
+    plain = e.clipboardData.getData('text/plain') || '';
     if(html){
-      var tmp = document.createElement('div');
-      tmp.innerHTML = html.replace(/<br[^>]*>/gi,'\n').replace(/<\/p>/gi,'\n').replace(/<\/div>/gi,'\n').replace(/<[^>]+>/g,'');
-      text = (tmp.textContent || tmp.innerText || '').replace(/\n{3,}/g,'\n\n').trim();
+      text = htmlToCleanText(html);
+      // Garde-fou : s'il reste des traces de code Word, le texte brut fourni
+      // par Outlook dans le presse-papiers est toujours propre → on l'utilise.
+      if(plain && /MsoNormal|mso-[a-z-]+\s*:|X-NONE|Style Definitions/i.test(text)) text = plain.trim();
+      if(!text && plain) text = plain.trim();
     } else {
-      text = e.clipboardData.getData('text/plain') || '';
+      text = plain;
     }
   } else {
     text = (window.clipboardData || {}).getData('Text') || '';
@@ -4233,6 +4370,65 @@ function handlePaste(e, el){
   el.value = cur.substring(0,s) + text + cur.substring(en);
   el.selectionStart = el.selectionEnd = s + text.length;
 }
+
+// ══ COLLER (Ctrl+V) DES FICHIERS / CAPTURES D'ÉCRAN ═══════════════════════════
+// En plus du glisser-déposer : on peut coller un fichier copié depuis l'Explorateur,
+// ou une capture d'écran (Win+Maj+S, Cmd+Ctrl+Maj+4...), directement avec Ctrl+V.
+//  • fiche mission ouverte (création/modification)  → ajouté aux pièces jointes
+//  • fenêtre « Ajouter photos / documents » ouverte  → ajouté à l'envoi
+//  • fiche (détail) d'une mission ouverte            → ouvre l'envoi avec le fichier prêt
+// Un collage de TEXTE (Outlook, Excel, Word…) n'est jamais intercepté.
+function _modalOpen(id){
+  var el = document.getElementById(id);
+  return !!el && getComputedStyle(el).display !== 'none';
+}
+function _nameForPastedFile(f, idx){
+  var generic = !f.name || /^image\.(png|jpe?g|gif|webp)$/i.test(f.name);
+  if(!generic) return f;
+  var t = new Date(), p = function(n){ return String(n).padStart(2,'0'); };
+  var stamp = t.getFullYear()+p(t.getMonth()+1)+p(t.getDate())+'-'+p(t.getHours())+p(t.getMinutes())+p(t.getSeconds());
+  var ext = ((f.type.split('/')[1] || 'png').split(';')[0]).replace('jpeg','jpg').replace('svg+xml','svg');
+  return new File([f], 'capture-' + stamp + (idx ? '-' + (idx+1) : '') + '.' + ext, {type: f.type, lastModified: Date.now()});
+}
+function _addFilesToInput(input, files, keepExisting){
+  var dt = new DataTransfer();
+  if(keepExisting) Array.prototype.forEach.call(input.files, function(f){ dt.items.add(f); });
+  files.forEach(function(f){ dt.items.add(f); });
+  input.files = dt.files;
+}
+document.addEventListener('paste', function(e){
+  var cd = e.clipboardData;
+  if(!cd || !cd.files || !cd.files.length) return;
+  if((cd.getData('text/plain') || '').trim()) return;          // collage de texte : comportement normal
+  var inUpload = _modalOpen('upload-modal');
+  var inMission = !inUpload && _modalOpen('mission-modal');
+  var inDetail = !inUpload && !inMission && _modalOpen('detail-modal') && window._detailMissionId != null;
+  if(!inUpload && !inMission && !inDetail) return;
+  e.preventDefault();
+  var accepted = Array.prototype.filter.call(cd.files, function(f){ return f.type.indexOf('image/') === 0 || f.type === 'application/pdf'; })
+                              .map(_nameForPastedFile);
+  if(!accepted.length){ showToast('⚠️ Seuls les images et PDF peuvent être collés'); return; }
+  if(inMission){
+    var input = document.getElementById('m-fichier');
+    _addFilesToInput(input, accepted, true);
+    previewFiles(input);
+  } else {
+    if(inDetail){ var mid = window._detailMissionId; closeDetailModal(); openUploadModal(mid); }
+    var up = document.getElementById('upload-file');
+    _addFilesToInput(up, accepted, inUpload);
+    var pv = document.getElementById('upload-preview');
+    if(pv){
+      pv.innerHTML = '';
+      Array.prototype.forEach.call(up.files, function(f){
+        var span = document.createElement('span');
+        span.style.cssText = 'display:inline-block;margin:.15rem .25rem .15rem 0;background:var(--light);border:1px solid var(--border);border-radius:6px;padding:.25rem .6rem;font-size:.8rem;color:var(--dark)';
+        span.textContent = '📄 ' + f.name;
+        pv.appendChild(span);
+      });
+    }
+  }
+  showToast('📋 ' + accepted.length + ' fichier' + (accepted.length > 1 ? 's' : '') + ' collé' + (accepted.length > 1 ? 's' : '') + (inMission ? ' — enregistrez la mission pour les envoyer' : ' — cliquez sur Envoyer'));
+});
 
 // ══ COPY TO CLIPBOARD ═════════════════════════════════════════════════════════
 function copyToClipboard(text){
@@ -4489,6 +4685,134 @@ let autoRefreshInterval = null;
 let lastDataHash = '';
 let userInteractionCount = 0; // ★ nombre d'interactions actives (drag/resize) en cours
 let isBackgroundRefresh = false; // ★ true pendant un renderAll() déclenché par l'auto-refresh (pas de reset du scroll)
+
+// ★ DÉPLACEMENT D'UNE MISSION (glisser-déposer) — date et/ou heure, avec « Annuler »
+function dragDayLabel(ds){
+  var p = String(ds).split('-');
+  var d = new Date(+p[0], +p[1]-1, +p[2]);
+  return ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'][d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth()+1);
+}
+function moveMissionTo(mObj, newDate, newHeure, newHeureFin){
+  var id = mObj.id;
+  var prev = {date:mObj.date, heure:mObj.heure, heureFin:mObj.heureFin};
+  var nd = newDate || prev.date;
+  var nh = (newHeure !== undefined && newHeure !== null) ? newHeure : prev.heure;
+  var nf = (newHeureFin !== undefined && newHeureFin !== null) ? newHeureFin : prev.heureFin;
+  // rien n'a changé (déposée au même endroit) : on réaffiche simplement
+  if(nd === prev.date && nh === prev.heure && nf === prev.heureFin){ renderCalendar(); return; }
+  var dateChanged = nd !== prev.date;
+  mObj.date = nd; mObj.heure = nh; mObj.heureFin = nf;
+  if(dateChanged){
+    addMissionHistory(mObj, 'Déplacée : ' + dragDayLabel(prev.date) + (prev.heure ? ' ' + prev.heure : '') + ' → ' + dragDayLabel(nd) + (nh ? ' ' + nh : ''));
+  }
+  saveMissionsToSheets([id]);
+  renderCalendar();
+  var label = (dateChanged ? dragDayLabel(nd) + ' · ' : '') + (nh || '') + (nf ? ' – ' + nf : '');
+  showUndoToast('📅 ' + mObj.client + ' → ' + label, function(){
+    var cur = findMission(id);
+    if(!cur) return;
+    cur.date = prev.date; cur.heure = prev.heure; cur.heureFin = prev.heureFin;
+    if(dateChanged) addMissionHistory(cur, 'Déplacement annulé (retour au ' + dragDayLabel(prev.date) + ')');
+    saveMissionsToSheets([id]);
+    renderCalendar();
+    showToast('↩️ Déplacement annulé');
+  }, 7000);
+}
+
+// Vue Mois : glisser une mission vers un autre jour (la date change, l'heure est conservée).
+// Souris : glisser directement. Tactile : appui long (≈0,35 s) puis glisser, pour ne pas
+// gêner le défilement normal de la page.
+function enableMonthChipDrag(chip, m){
+  if(!currentUser || !currentUser.isAdmin) return;
+  var DRAG_PX = 6, LONGPRESS_MS = 350;
+  var ghost = null, active = false, lastCell = null, timer = null, startX = 0, startY = 0;
+  chip.style.cursor = 'grab';
+  chip.style.webkitTouchCallout = 'none';
+  chip.style.userSelect = 'none';
+  function cellAt(x, y){
+    var els = document.elementsFromPoint(x, y);
+    for(var i=0;i<els.length;i++){
+      if(els[i].classList && els[i].classList.contains('month-cell') && els[i].dataset.date) return els[i];
+    }
+    return null;
+  }
+  function begin(x, y){
+    active = true; chip._dragging = true; beginInteraction();
+    ghost = chip.cloneNode(true);
+    ghost.style.cssText = 'position:fixed;left:'+(x-40)+'px;top:'+(y-12)+'px;width:'+chip.offsetWidth+'px;background:'+chip.style.background+';color:white;border-radius:4px;padding:.15rem .35rem;font-size:.7rem;opacity:.92;box-shadow:0 6px 16px rgba(0,0,0,.35);pointer-events:none;z-index:999;white-space:nowrap;overflow:hidden';
+    document.body.appendChild(ghost);
+    chip.style.opacity = '.35';
+  }
+  function move(x, y){
+    ghost.style.left = (x-40)+'px'; ghost.style.top = (y-12)+'px';
+    var c = cellAt(x, y);
+    if(c !== lastCell){
+      if(lastCell) lastCell.style.outline = '';
+      if(c){ c.style.outline = '2px solid var(--copper)'; c.style.outlineOffset = '-2px'; }
+      lastCell = c;
+    }
+  }
+  function finish(x, y, cancel){
+    clearTimeout(timer);
+    if(!active) return;
+    var c = cancel ? null : cellAt(x, y);
+    if(lastCell){ lastCell.style.outline = ''; lastCell = null; }
+    if(ghost){ ghost.remove(); ghost = null; }
+    chip.style.opacity = '';
+    active = false; endInteraction();
+    // évite qu'un « clic » fantôme ouvre la fiche / une nouvelle mission après le dépôt
+    var swallow = function(ev){ ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', swallow, true);
+    setTimeout(function(){ document.removeEventListener('click', swallow, true); chip._dragging = false; }, 350);
+    if(c && c.dataset.date !== m.date){
+      var cur = findMission(m.id);
+      if(cur) moveMissionTo(cur, c.dataset.date);
+    }
+  }
+  // Souris
+  chip.addEventListener('mousedown', function(e){
+    if(e.button !== 0) return;
+    startX = e.clientX; startY = e.clientY;
+    function mm(ev){
+      if(!active){
+        if(Math.abs(ev.clientX-startX) + Math.abs(ev.clientY-startY) < DRAG_PX) return;
+        begin(ev.clientX, ev.clientY);
+      }
+      move(ev.clientX, ev.clientY);
+    }
+    function mu(ev){
+      document.removeEventListener('mousemove', mm);
+      document.removeEventListener('mouseup', mu);
+      finish(ev.clientX, ev.clientY, false);
+    }
+    document.addEventListener('mousemove', mm);
+    document.addEventListener('mouseup', mu);
+  });
+  // Tactile (appui long)
+  chip.addEventListener('touchstart', function(e){
+    var t0 = e.touches[0]; startX = t0.clientX; startY = t0.clientY;
+    timer = setTimeout(function(){ begin(startX, startY); if(navigator.vibrate) navigator.vibrate(15); }, LONGPRESS_MS);
+    function cleanup(){
+      chip.removeEventListener('touchmove', tm);
+      chip.removeEventListener('touchend', te);
+      chip.removeEventListener('touchcancel', tc);
+    }
+    function tm(ev){
+      var t = ev.touches[0];
+      if(!active){
+        if(Math.abs(t.clientX-startX) + Math.abs(t.clientY-startY) > 10){ clearTimeout(timer); cleanup(); }
+        return;
+      }
+      ev.preventDefault();
+      move(t.clientX, t.clientY);
+    }
+    function te(ev){ var t = ev.changedTouches[0]; cleanup(); clearTimeout(timer); finish(t.clientX, t.clientY, false); }
+    function tc(){ cleanup(); clearTimeout(timer); finish(0, 0, true); }
+    chip.addEventListener('touchmove', tm, {passive:false});
+    chip.addEventListener('touchend', te);
+    chip.addEventListener('touchcancel', tc);
+  }, {passive:true});
+}
 
 function beginInteraction(){ userInteractionCount++; }
 function endInteraction(){ userInteractionCount = Math.max(0, userInteractionCount-1); }
@@ -4841,6 +5165,7 @@ function closeDetailModal(){
 function openDetailModal(id){
   const m = findMission(id);
   if(!m) return;
+  window._detailMissionId = m.id;
   const isLM = isLeroyMerlinMission(m);
   document.getElementById('detail-client-name').textContent = '🏗️ ' + m.client;
   // ★ Icônes d'action façon Google Calendar — Modifier / Dupliquer / Supprimer,
@@ -6298,7 +6623,7 @@ async function generateLMBonPDF(d){
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:white;font-family:Arial,sans-serif';
 
   const html = `
-  <div style="width:794px;min-height:1123px;background:white;position:relative;padding:0;margin:0">
+  <div style="width:794px;background:white;position:relative;padding:0;margin:0">
 
     <!-- EN-TÊTE GRIS -->
     <div style="background:#888;color:white;text-align:center;padding:5px 0;font-size:10px;font-weight:700;letter-spacing:2px">
@@ -6415,7 +6740,11 @@ async function generateLMBonPDF(d){
     const pageH = pdf.internal.pageSize.getHeight();
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
     const imgH = (canvas.height * pageW) / canvas.width;
-    if(imgH <= pageH){
+    // ★ Évite une 2e page quasi vierge causée par quelques pixels de trop
+    // (marges, arrondis) : on tolère un léger dépassement (jusqu'à 4mm) en le
+    // laissant simplement déborder dans la marge basse de la page unique.
+    const OVERFLOW_TOLERANCE_MM = 4;
+    if(imgH <= pageH + OVERFLOW_TOLERANCE_MM){
       pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
     } else {
       let y = 0;
